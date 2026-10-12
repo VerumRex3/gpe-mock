@@ -51,13 +51,14 @@ export class Game {
     };
     for (let i = 0; i < ENEMY.handSize; i++) this.enemy.hand.push(this.enemyDraw());
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
-    this.comboPending = { p1: null, p2: null };
+    // パリィを含む連携は、次の通常攻撃で2人ともパリィに成功するまで保留する: [[pid, card], ...]
+    this.comboParry = null;
   }
 
   makePlayer(pid) {
     const p = {
       id: pid, hp: RULES.playerMaxHp, maxHp: RULES.playerMaxHp, block: 0,
-      mana: 0, cap: 0, ready: false, armed: [], nextMult: 1, nextBonus: 0,
+      mana: 0, cap: 0, manaNext: 0, ready: false, queued: [], armed: [], nextMult: 1, nextBonus: 0,
       deck: shuffle(DECKS[pid].map(makeCard), this.rng), discard: [], hand: [],
     };
     for (let i = 0; i < RULES.handSize; i++) p.hand.push(this.draw(p));
@@ -95,12 +96,13 @@ export class Game {
     for (const pid of PIDS) {
       const p = this.players[pid];
       p.cap = capFor(pid, this.turn);
-      p.mana = p.cap;
+      p.mana = p.cap + p.manaNext;
+      p.manaNext = 0;
       p.ready = !this.alive(pid);
     }
-    this.comboPending = { p1: null, p2: null };
   }
 
+  // ターン中はカードを場に出すだけ（マナはここで払う）。効果は resolveTurn でまとめて発動する
   playCard(pid, slot) {
     if (!this.canAct(pid)) return null;
     const p = this.players[pid];
@@ -108,36 +110,49 @@ export class Game {
     if (!card) return null;
     if (card.cost > p.mana) return { error: 'mana' };
     p.mana -= card.cost;
-    p.hand[slot] = null;
-    const ev = [log(`${LABEL[pid]}「${card.name}」`)];
-    if (card.type === 'parry') {
-      // パリィは「構え」として次の敵の通常攻撃まで待機する
-      p.armed.push(card);
-      ev.push({ type: 'armed', pid });
-    } else {
-      if (card.hits) this.attack(pid, card.hits, ev, true);
-      this.applyFx(pid, card.fx, ev);
-      p.discard.push(card);
-      if (card.combo) this.registerCombo(pid, card, ev);
-    }
+    p.queued.push(card);
     p.hand[slot] = this.draw(p);
-    this.checkOver(ev);
-    return { card, events: ev };
+    return { card };
   }
 
-  // 同じ味方ターン内に2人とも連携カードを使うと、2枚目の時点で連携発動
-  registerCombo(pid, card, ev) {
-    this.comboPending[pid] = card;
-    if (!this.comboPending[this.other(pid)]) {
-      ev.push({ type: 'comboWait', pid });
-      return;
+  hasComboQueued(pid) { return this.players[pid].queued.some((c) => c.combo); }
+
+  // 2人とも「ターン終了」を押したら、2P → 1P の順に場のカードを出した順で発動する
+  // 同じターンに2人とも金枠を出していれば連携。金枠にパリィが含まれるときは次の通常攻撃まで保留
+  resolveTurn() {
+    const ev = [];
+    const combo = PIDS.every((pid) => this.hasComboQueued(pid));
+    const comboCards = PIDS.flatMap((pid) => this.players[pid].queued.filter((c) => c.combo).map((c) => [pid, c]));
+    for (const pid of ['p2', 'p1']) {
+      const p = this.players[pid];
+      for (const card of p.queued) {
+        if (this.over) break;
+        ev.push({ type: 'resolve', pid, card }, log(`${LABEL[pid]}「${card.name}」`));
+        if (card.type === 'parry') {
+          // パリィは「構え」として次の敵の通常攻撃まで待機する
+          p.armed.push(card);
+          ev.push({ type: 'armed', pid });
+        } else {
+          if (card.hits) this.attack(pid, card.hits, ev, true);
+          this.applyFx(pid, card.fx, ev);
+          p.discard.push(card);
+        }
+        this.checkOver(ev);
+      }
+      p.queued = [];
     }
-    const { p1, p2 } = this.comboPending;
-    this.comboPending = { p1: null, p2: null };
-    ev.push({ type: 'combo', parry: false, names: [p1.name, p2.name] });
-    ev.push(log(`連携発動！「${p1.name}」×「${p2.name}」`));
-    this.applyFx('p1', p1.comboFx, ev);
-    this.applyFx('p2', p2.comboFx, ev);
+    if (combo && !this.over) {
+      const names = comboCards.map(([, c]) => c.name);
+      if (comboCards.some(([, c]) => c.type === 'parry')) {
+        this.comboParry = [...(this.comboParry ?? []), ...comboCards];
+        ev.push({ type: 'comboArmed', names }, log('連携成立！ 次の通常攻撃で2人ともパリィ成功で発動'));
+      } else {
+        ev.push({ type: 'combo', parry: false, names }, log(`連携発動！「${names.join('」×「')}」`));
+        for (const [pid, c] of comboCards) this.applyFx(pid, c.comboFx, ev);
+        this.checkOver(ev);
+      }
+    }
+    return ev;
   }
 
   reroll(pid) {
@@ -200,7 +215,7 @@ export class Game {
       p.armed = [];
       p.block = 0;
       p.ready = true;
-      this.comboPending[pid] = null;
+      this.comboParry = null;
       ev.push({ type: 'down', pid }, log(`${LABEL[pid]} 戦闘不能`));
     }
   }
@@ -237,9 +252,9 @@ export class Game {
       p1.nextBonus += fx.p1Bonus;
       ev.push({ type: 'status', target: 'p1', text: `次の攻撃+${fx.p1Bonus}` });
     }
-    if (fx.p1Mana && this.alive('p1')) {
-      p1.mana += fx.p1Mana;
-      ev.push({ type: 'mana', target: 'p1', amount: fx.p1Mana });
+    if (fx.p1NextMana && this.alive('p1')) {
+      p1.manaNext += fx.p1NextMana;
+      ev.push({ type: 'mana', target: 'p1', amount: fx.p1NextMana });
     }
     if (fx.weak) {
       e.weak = { amount: fx.weak[0], turns: fx.weak[1] };
@@ -268,10 +283,16 @@ export class Game {
 
   armedPids() { return this.alivePids().filter((pid) => this.players[pid].armed.length); }
 
+  // バーに参加する人。連携パリィが保留中なら、パリィカードを出していない人も参加する
+  parryPids() {
+    if (this.comboParry && this.alivePids().length === PIDS.length) return [...PIDS];
+    return this.armedPids();
+  }
+
   // accs: { p1?: 0..1, p2?: 0..1 } バー中央への近さ。止めなかった場合は 0
   resolveParry(accs) {
     const ev = [];
-    const pids = this.armedPids();
+    const pids = this.parryPids();
     const success = {};
     for (const pid of pids) {
       const p = this.players[pid];
@@ -284,12 +305,15 @@ export class Game {
         if (success[pid]) this.applyFx(pid, card.success, ev);
       }
     }
-    // 連携パリィ: 連携カードを構えていて、2人ともパリィ成功
-    const comboCards = pids.flatMap((pid) => this.players[pid].armed.filter((c) => c.combo).map((c) => [pid, c]));
-    if (comboCards.length && PIDS.every((pid) => success[pid])) {
-      ev.push({ type: 'combo', parry: true, names: comboCards.map(([, c]) => c.name) });
-      ev.push(log('連携パリィ成功！'));
-      for (const [pid, c] of comboCards) this.applyFx(pid, c.comboFx, ev);
+    if (this.comboParry) {
+      const comboCards = this.comboParry;
+      this.comboParry = null;
+      if (PIDS.every((pid) => success[pid])) {
+        ev.push({ type: 'combo', parry: true, names: comboCards.map(([, c]) => c.name) }, log('連携パリィ成功！'));
+        for (const [pid, c] of comboCards) this.applyFx(pid, c.comboFx, ev);
+      } else {
+        ev.push(log('連携パリィ失敗…'));
+      }
     }
     for (const pid of pids) {
       const p = this.players[pid];

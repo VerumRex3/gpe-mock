@@ -22,7 +22,7 @@ document.getElementById('boot')?.remove();
 
 const cursor = { p1: 0, p2: 0 };
 const startReady = { p1: false, p2: false };
-// title / intro / player / enemy / parry / ending / result
+// title / intro / player / resolve / enemy / parry / ending / result
 let mode = 'title';
 let game = new Game();
 
@@ -61,7 +61,7 @@ function playerAction(pid, act) {
     if (!game.alive(pid)) return;
     game.toggleReady(pid);
     view.refresh();
-    if (game.allReady()) enemyPhase();
+    if (game.allReady()) resolvePhase();
     return;
   }
   if (!game.canAct(pid)) return;
@@ -78,9 +78,7 @@ function playerAction(pid, act) {
       return;
     }
     view.cardPlayed(pid, slot, res.card);
-    view.enqueue(res.events);
     view.refresh();
-    if (game.over) finishWhenIdle();
     return;
   }
   if (act === 'reroll') {
@@ -116,6 +114,17 @@ async function beginPlayerTurn() {
   view.setPhase('player');
 }
 
+// 場に出したカードをまとめて発動する
+async function resolvePhase() {
+  mode = 'resolve';
+  view.setPhase('resolve');
+  await view.idle();
+  view.enqueue(game.resolveTurn());
+  await view.idle();
+  if (game.over) return finish();
+  await enemyPhase();
+}
+
 async function enemyPhase() {
   mode = 'enemy';
   view.setPhase('enemy');
@@ -126,10 +135,10 @@ async function enemyPhase() {
     const card = game.enemy.hand[slot];
     view.addLog(`敵「${card.name}」`);
     await view.revealEnemyCard(slot, card, card.dmg != null ? game.enemyDamage(card) : undefined);
-    if (card.kind === 'normal' && game.armedPids().length) {
+    if (card.kind === 'normal' && game.parryPids().length) {
       mode = 'parry';
       view.setPhase('parry');
-      const accs = await view.runParry(game.armedPids());
+      const accs = await view.runParry(game.parryPids(), !!game.comboParry);
       mode = 'enemy';
       view.setPhase('enemy');
       view.enqueue(game.resolveParry(accs));
@@ -148,12 +157,6 @@ async function enemyPhase() {
   view.enqueue(game.endEnemyPhase());
   await view.idle();
   await beginPlayerTurn();
-}
-
-async function finishWhenIdle() {
-  mode = 'ending';
-  await view.idle();
-  finish();
 }
 
 // ?debug を付けたときだけ、確認用の操作をコンソールに出す

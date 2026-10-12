@@ -32,7 +32,7 @@ export const KEYS = {
 
 // 描画順（renderOrder）
 const L = {
-  bg: 0, motes: 1, header: 4, enemyCards: 6, enemy: 8, chars: 10, charUi: 12, fx: 20,
+  bg: 0, motes: 1, header: 4, enemyCards: 6, enemy: 8, chars: 10, charUi: 12, field: 14, mini: 16, fx: 20,
   panels: 30, cards: 32, fly: 36, log: 38, reveal: 44, banner: 50, parry: 60, popup: 70,
   flash: 80, overlay: 90, help: 95,
 };
@@ -49,13 +49,17 @@ const CARD_H = 228;
 const HAND_TOP = H - CARD_H / 2 - 10;
 const TRACK = { x0: 250, x1: 1670, top: 228 };
 const REVEAL = { x: 960, top: 500 };
+// 場（このターンに出したカードを並べる。2P のキャラと竜の間）。rows は各段の中心
+const FIELD = { x: 995, w: 290, top: 400, h: 320, tag: 36, rows: { p1: 470, p2: 650 } };
+const MINI_W = 88;
+const MINI_H = 124;
 
 const HELP = [
   ['目的', '灯火の翼竜を倒す。2人とも倒れたら負け。'],
-  ['ターンの流れ', '味方のターンは2人が同時に操作する（制限時間なし）。2人とも「ターン終了」を押すと敵のターン。'],
-  ['マナ', 'ターン開始時に上限まで全回復。上限は 1P が 3→10（毎ターン+1）、2P が 10→3（毎ターン−1）。2Pの「魔力供給」で1Pにマナを渡せる。'],
-  ['パリィ', 'パリィカードを使うと「構え」になり、次の敵の通常攻撃でバーが出る。中央に近いところで止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。'],
-  ['連携', '金枠のカード。同じターンに2人とも連携カードを使うと追加効果。連携パリィは2人ともパリィに成功すると発動。'],
+  ['ターンの流れ', '味方のターンは2人が同時に操作する（制限時間なし）。出したカードは場に並ぶだけで、まだ発動しない。2人とも「ターン終了」を押すと、2P→1P の順に出した順でまとめて発動し、そのあと敵のターン。'],
+  ['マナ', 'ターン開始時に上限まで全回復。カードを場に出した時点で減る。上限は 1P が 3→10（毎ターン+1）、2P が 10→3（毎ターン−1）。2Pの「魔力供給」で1Pの次のターンのマナを増やせる。'],
+  ['パリィ', 'パリィカードが発動すると「構え」になり、次の敵の通常攻撃でバーが出る。中央に近いところで止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。'],
+  ['連携', '金枠のカード。同じターンに2人とも金枠を出すと連携が成立し、発動時に連携効果が上乗せされる（組み合わせは自由）。金枠にパリィが含まれるときは、次の敵の通常攻撃で2人ともパリィに成功すると発動（パリィカードを出していない人もバーに参加する）。'],
   ['敵', '上に伏せた5枚から毎ターン1枚を使う。何が来るかは分からない。特殊行動はパリィできない。HPが半分を切ると激昂して2回行動。'],
   ['引き直し・防御値', '引き直しはマナ1で手札3枚を入れ替える。使い切らなかった防御値は次の攻撃まで残る。'],
 ];
@@ -840,6 +844,42 @@ function drawCard(ctx, w, h, card, o) {
   }
 }
 
+// 場に並べる小さいカード。効果文は省き、名前と種別だけを読める大きさで出す
+function drawMiniCard(ctx, w, h, card) {
+  const typeCol = C[card.type];
+  rr(ctx, 1, 1, w - 2, h - 2, 9);
+  ctx.fillStyle = card.combo ? C.gold : PCOL[card.owner];
+  ctx.fill();
+  rr(ctx, 5, 5, w - 10, h - 10, 6);
+  ctx.fillStyle = C.cream;
+  ctx.fill();
+  ctx.save();
+  rr(ctx, 5, 5, w - 10, h - 10, 6);
+  ctx.clip();
+  ctx.fillStyle = typeCol;
+  ctx.fillRect(5, 5, w - 10, 30);
+  ctx.fillStyle = mix(typeCol, '#ffffff', 0.72);
+  ctx.fillRect(5, 35, w - 10, 50);
+  ctx.restore();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  let fs = 15;
+  ctx.font = font(fs);
+  while (ctx.measureText(card.name).width > w - 14 && fs > 10) ctx.font = font(--fs);
+  ctx.fillText(card.name, w / 2, 21);
+  drawIcon(ctx, card.type, w / 2, 60, 0.85, mix(typeCol, '#000000', 0.12));
+  if (card.combo) drawChain(ctx, w - 18, 76, '#9a6f08');
+  const label = TYPE_LABEL[card.type] + (card.combo ? '・連携' : '');
+  ctx.font = font(12);
+  const lw = ctx.measureText(label).width + 14;
+  rr(ctx, w / 2 - lw / 2, 92, lw, 20, 10);
+  ctx.fillStyle = card.combo ? C.gold : typeCol;
+  ctx.fill();
+  ctx.fillStyle = card.combo ? '#3a2a00' : '#ffffff';
+  ctx.fillText(label, w / 2, 102.5);
+}
+
 function drawCardGlow(ctx, w, h, color) {
   ctx.shadowColor = color;
   ctx.shadowBlur = 26;
@@ -1117,12 +1157,65 @@ function drawCharPanel(ctx, w, h, pid, d, p, game) {
   drawHpBar(ctx, 36, 4, w - 40, 32, d.hp, p.maxHp, PCOL[pid], LABEL[pid]);
   drawShield(ctx, 18, 20, 0.95, d.block);
   const chips = [];
+  // 幅に収まらない分は落ちるので、重要なものから並べる
   if (d.hp <= 0) chips.push(['戦闘不能', '#555555']);
-  if (p.armed.length) chips.push([`構え×${p.armed.length}`, C.parry]);
+  if (game.comboParry && d.hp > 0) chips.push(['連携パリィ待ち', C.gold]);
+  if (p.armed.length) chips.push([p.armed.length > 1 ? `構え×${p.armed.length}` : '構え', C.parry]);
   if (pid === 'p1' && p.nextMult !== 1) chips.push([`攻撃×${fmt(p.nextMult)}`, C.buff]);
   if (pid === 'p1' && p.nextBonus) chips.push([`次の攻撃+${p.nextBonus}`, C.buff]);
-  if (game.comboPending[pid]) chips.push(['連携待ち', C.gold]);
+  if (p.manaNext) chips.push([`次マナ+${p.manaNext}`, '#1f7f8c']);
   drawChips(ctx, chips, 2, 46, w);
+}
+
+// 場: 段ごとにそのプレイヤーの色で枠を描き、間に連携の成立状況を出す（カード本体は別メッシュ）
+function drawField(ctx, w, h, st, phase) {
+  const tag = FIELD.tag;
+  for (const pid of PIDS) {
+    const y = FIELD.rows[pid] - FIELD.top - 70;
+    rr(ctx, 1, y + 1, w - 2, 138, 14);
+    ctx.fillStyle = 'rgba(12, 16, 24, 0.72)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = PLIGHT[pid];
+    ctx.stroke();
+    rr(ctx, 1, y + 1, tag, 138, [14, 0, 0, 14]);
+    ctx.fillStyle = PCOL[pid];
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = font(16);
+    ctx.fillText(LABEL[pid], tag / 2 + 1, y + 58);
+    ctx.font = font(13);
+    ctx.fillText('場', tag / 2 + 1, y + 82);
+    if (phase === 'player' && st.empty[pid]) {
+      ctx.font = font(14, 500);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillText('出したカードがここに並ぶ', tag + (w - tag) / 2, y + 70);
+    }
+  }
+  const has = PIDS.filter((pid) => st.combo[pid]);
+  if (!has.length) return;
+  let text;
+  if (has.length === 2) text = st.comboParry ? '連携成立（パリィ2人成功で発動）' : '連携成立！ ターン終了で発動';
+  else text = `連携待ち：${LABEL[PIDS.find((pid) => !st.combo[pid])]}も金枠を出すと成立`;
+  ctx.save();
+  ctx.translate(0, FIELD.rows.p1 - FIELD.top + 76);
+  drawPill(ctx, w, 32, text, {
+    bg: has.length === 2 ? C.gold : 'rgba(40, 32, 10, 0.88)', color: has.length === 2 ? '#3a2a00' : C.gold, size: 15,
+  });
+  ctx.restore();
+}
+
+function fieldState(game) {
+  const st = { empty: {}, combo: {}, comboParry: false };
+  for (const pid of PIDS) {
+    const q = game.players[pid].queued;
+    st.empty[pid] = !q.length;
+    st.combo[pid] = q.some((c) => c.combo);
+    if (q.some((c) => c.combo && c.type === 'parry')) st.comboParry = true;
+  }
+  return st;
 }
 
 function drawEnemyPanel(ctx, w, h, d, e) {
@@ -1216,7 +1309,7 @@ function drawPanel(ctx, w, h, pid, p, game, phase) {
   const arrow = next > cap ? ' ▲' : next < cap ? ' ▼' : '';
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   ctx.font = font(16, 500);
-  ctx.fillText(`上限 ${cap}　次ターン ${next}${arrow}`, x0 + 148, 104);
+  ctx.fillText(`上限 ${cap}　次ターン ${next}${arrow}${p.manaNext ? `＋${p.manaNext}` : ''}`, x0 + 148, 104);
   const slots = Math.max(10, mana);
   for (let i = 0; i < slots; i++) {
     const x = x0 + 84 + i * 26;
@@ -1256,7 +1349,7 @@ function drawPanel(ctx, w, h, pid, p, game, phase) {
   ctx.font = font(15, 500);
   ctx.fillStyle = 'rgba(255,255,255,0.82)';
   const k = KEYS[pid];
-  ctx.fillText(`${k.move} 選択　${k.use} 使う　${k.reroll} 引き直し　${k.end} 終了`, x0, 214);
+  ctx.fillText(`${k.move} 選択　${k.use} 出す　${k.reroll} 引き直し　${k.end} 終了`, x0, 214);
 }
 
 function drawTrash(ctx, w, h, pid) {
@@ -1438,7 +1531,7 @@ function drawRoleBox(ctx, x, y, pid, ready) {
   ctx.font = font(32);
   ctx.fillText(`${LABEL[pid]}  ${ROLE[pid]}`, x + 24, y + 33);
   const k = KEYS[pid];
-  [[k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.reroll, '手札を引き直す（マナ1）'], [k.end, 'ターン終了']]
+  [[k.move, 'カード選択'], [k.use, 'カードを出す／パリィを止める'], [k.reroll, '手札を引き直す（マナ1）'], [k.end, 'ターン終了（2人そろうと発動）']]
     .forEach(([key, desc], i) => {
       const yy = y + 100 + i * 38;
       rr(ctx, x + 24, yy - 15, 100, 30, 8);
@@ -1472,7 +1565,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 360);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('2人協力・ターン制カードバトル　戦闘モック v0.1', w / 2, 428);
+  ctx.fillText('2人協力・ターン制カードバトル　戦闘モック v0.2', w / 2, 428);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('1台のキーボードを2人で使います', w / 2, 474);
@@ -1539,7 +1632,7 @@ function drawHelp(ctx, w, h) {
   ctx.fillStyle = '#e8eef0';
   for (const pid of PIDS) {
     const k = KEYS[pid];
-    ctx.fillText(`${LABEL[pid]}　${k.move}：カード選択　${k.use}：使う／パリィを止める　${k.reroll}：引き直し　${k.end}：ターン終了`, 480, y);
+    ctx.fillText(`${LABEL[pid]}　${k.move}：カード選択　${k.use}：出す／パリィを止める　${k.reroll}：引き直し　${k.end}：ターン終了`, 480, y);
     y += 34;
   }
 }
@@ -1568,6 +1661,8 @@ export class View {
     this.parry = null;
     this.helpOpen = false;
     this.overlayState = null;
+    this.zone = { p1: [], p2: [] }; // 場に出したカードのメッシュ { card, mesh }
+    this.fieldSt = null;
     window.addEventListener('resize', () => this.resize());
     this.resize();
   }
@@ -1665,6 +1760,7 @@ export class View {
     this.buildCharacters();
     this.buildPanels();
     this.buildHands();
+    this.buildField();
     this.buildParry();
     this.buildOverlays();
   }
@@ -1808,6 +1904,13 @@ export class View {
     }
   }
 
+  buildField() {
+    this.field = canvasPlane(FIELD.w, FIELD.h, null, { layer: L.field });
+    at(this.field.mesh, FIELD.x, FIELD.top + FIELD.h / 2);
+    this.field.mesh.visible = false;
+    this.scene.add(this.field.mesh);
+  }
+
   buildParry() {
     const group = new THREE.Group();
     group.visible = false;
@@ -1904,6 +2007,7 @@ export class View {
     this.game = game;
     this.cursor = cursor;
     this.logLines = [];
+    this.clearZone();
     this.syncDisp();
     for (const pid of PIDS) {
       const c = this.chars[pid];
@@ -1939,6 +2043,7 @@ export class View {
 
   setPhase(phase) {
     this.phase = phase;
+    if (phase !== 'player' && phase !== 'resolve') this.clearZone();
     this.refresh();
   }
 
@@ -1948,22 +2053,36 @@ export class View {
     for (const pid of PIDS) this.drawPanel(pid);
     for (const pid of PIDS) this.drawCharPanel(pid);
     this.drawEnemyPanel();
+    this.drawField();
     this.turnBadge.draw((ctx, w, h) => drawTurnBadge(ctx, w, h, this.game.turn));
-    const text = { player: '味方のターン ― 2人とも［ターン終了］で敵のターンへ', enemy: '敵のターン', parry: 'パリィ！' }[this.phase] || '';
-    this.phasePill.draw((ctx, w, h) => drawPill(ctx, w, h, text, { bg: this.phase === 'player' ? 'rgba(10, 30, 36, 0.72)' : 'rgba(110, 24, 30, 0.82)' }));
+    const text = {
+      player: '味方のターン ― 2人とも［ターン終了］でカードが発動', resolve: 'カード発動', enemy: '敵のターン', parry: 'パリィ！',
+    }[this.phase] || '';
+    const calm = this.phase === 'player' || this.phase === 'resolve';
+    this.phasePill.draw((ctx, w, h) => drawPill(ctx, w, h, text, { bg: calm ? 'rgba(10, 30, 36, 0.72)' : 'rgba(110, 24, 30, 0.82)' }));
+  }
+
+  // 発動中は場が順に空になっていくので、連携の表示はターン終了時点のものを残す
+  drawField() {
+    const show = this.phase === 'player' || this.phase === 'resolve';
+    this.field.mesh.visible = show;
+    if (!show) return;
+    if (this.phase === 'player' || !this.fieldSt) this.fieldSt = fieldState(this.game);
+    this.field.draw((ctx, w, h) => drawField(ctx, w, h, this.fieldSt, this.phase));
   }
 
   refreshHands() {
     const g = this.game;
     for (const pid of PIDS) {
       const p = g.players[pid];
-      const partnerWaiting = !!g.comboPending[g.other(pid)];
+      // 相方だけが金枠を出しているとき、自分の金枠を光らせる
+      const partnerWaiting = g.hasComboQueued(g.other(pid)) && !g.hasComboQueued(pid);
       p.hand.forEach((card, i) => {
         const s = this.hands[pid][i];
         const o = {
           affordable: !card || card.cost <= p.mana,
           inactive: this.phase !== 'player' || !g.canAct(pid),
-          comboHint: !!(partnerWaiting && card?.combo && card.type !== 'parry'),
+          comboHint: !!(partnerWaiting && card?.combo),
         };
         const key = `${card?.uid}|${o.affordable}|${o.inactive}|${o.comboHint}`;
         if (s.key === key) return;
@@ -2065,9 +2184,9 @@ export class View {
       }
       case 'mana': {
         this.drawPanel('p1');
-        this.refreshHands();
+        this.drawCharPanel('p1');
         const p = this.targetPoint('p1');
-        this.popText(p.x, p.top - 30, `+${e.amount} マナ`, C.mana, 36);
+        this.popText(p.x, p.top - 30, `次ターン マナ+${e.amount}`, C.mana, 34);
         this.ring(p.x, p.top + 40, C.mana);
         await this.wait(150);
         return;
@@ -2088,14 +2207,15 @@ export class View {
         this.popText(p.x, p.top - 40, '構え', C.block, 34);
         return;
       }
-      case 'comboWait': {
-        this.refresh();
-        const p = this.targetPoint(e.pid);
-        this.popText(p.x, p.top - 90, '連携待ち…', C.gold, 30);
+      case 'resolve':
+        await this.resolveCard(e.pid, e.card);
         return;
-      }
       case 'combo':
         await this.comboFx(e);
+        return;
+      case 'comboArmed':
+        for (const pid of PIDS) this.drawCharPanel(pid);
+        await this.banner('連携成立', '次の敵の通常攻撃で2人ともパリィ成功 → 連携パリィ', C.gold, 900);
         return;
       case 'down':
         this.drawCharPanel(e.pid);
@@ -2223,23 +2343,72 @@ export class View {
 
   // ---------------- 味方の操作に対する即時演出
 
+  // 出したカードは手札から場へ飛び、ターン終了まで並んだままになる
   cardPlayed(pid, slot, card) {
     const s = this.hands[pid][slot];
-    const ghost = canvasPlane(CARD_W, CARD_H, (ctx, w, h) => drawCard(ctx, w, h, card, { affordable: true }), { layer: L.fly });
-    ghost.mesh.position.copy(s.group.position);
-    ghost.mesh.scale.copy(s.group.scale);
-    this.scene.add(ghost.mesh);
-    const dest = this.cardDest(pid, card);
-    Promise.all([
-      this.tween(ghost.mesh.position, { x: dest.x, y: H - dest.top }, 320, 'inOut'),
-      this.tween(ghost.mesh.scale, { x: 0.45, y: 0.45 }, 320, 'inOut'),
-      this.tween(ghost.mesh.material, { opacity: 0 }, 160, 'in', 190),
-    ]).then(() => disposeMesh(ghost.mesh));
+    const mini = canvasPlane(MINI_W, MINI_H, (ctx, w, h) => drawMiniCard(ctx, w, h, card), { layer: L.fly, scale: Math.min(2.5, RES * 1.3) });
+    mini.mesh.position.copy(s.group.position);
+    mini.mesh.scale.set(s.group.scale.x * (CARD_W / MINI_W), s.group.scale.y * (CARD_H / MINI_H), 1);
+    this.scene.add(mini.mesh);
+    this.zone[pid].push({ card, mesh: mini.mesh });
+    this.layoutZone(pid);
     this.killTweens(s.slide);
     s.slide.y = -280;
     this.tween(s.slide, { y: 0 }, 300, 'out', 140);
-    if (card.type === 'attack' && pid === 'p1') this.lunge(pid);
-    else this.pulse(pid);
+    this.pulse(pid);
+  }
+
+  // 段に収まらない枚数になったら重ねて詰める。後に出したカードほど手前
+  layoutZone(pid) {
+    const list = this.zone[pid];
+    const span = FIELD.w - FIELD.tag - 12 - MINI_W;
+    const step = list.length > 1 ? Math.min(MINI_W + 4, span / (list.length - 1)) : 0;
+    const x0 = FIELD.x - FIELD.w / 2 + FIELD.tag + 6 + MINI_W / 2;
+    list.forEach((z, i) => {
+      const m = z.mesh;
+      this.killTweens(m.position);
+      this.killTweens(m.scale);
+      this.tween(m.position, { x: x0 + i * step, y: H - FIELD.rows[pid] }, 320, 'inOut');
+      this.tween(m.scale, { x: 1, y: 1 }, 320, 'inOut').then(() => {
+        if (m.parent) m.renderOrder = L.mini + i / 100;
+      });
+    });
+  }
+
+  // 発動: 場のカードを一度持ち上げてから対象へ飛ばす
+  async resolveCard(pid, card) {
+    const list = this.zone[pid];
+    const i = list.findIndex((z) => z.card.uid === card.uid);
+    const z = i >= 0 ? list.splice(i, 1)[0] : null;
+    if (z) {
+      const m = z.mesh;
+      m.renderOrder = L.fly;
+      this.killTweens(m.position);
+      this.killTweens(m.scale);
+      await this.tween(m.scale, { x: 1.35, y: 1.35 }, 160, 'back');
+      await this.wait(120);
+      const dest = this.cardDest(pid, card);
+      if (card.type === 'attack' && pid === 'p1') this.lunge(pid);
+      else this.pulse(pid);
+      await Promise.all([
+        this.tween(m.position, { x: dest.x, y: H - dest.top }, 260, 'in'),
+        this.tween(m.scale, { x: 0.8, y: 0.8 }, 260, 'in'),
+        this.tween(m.material, { opacity: 0 }, 120, 'in', 150),
+      ]);
+      disposeMesh(m);
+    }
+  }
+
+  clearZone() {
+    for (const pid of PIDS) {
+      for (const z of this.zone[pid]) {
+        this.killTweens(z.mesh.position);
+        this.killTweens(z.mesh.scale);
+        this.killTweens(z.mesh.material);
+        disposeMesh(z.mesh);
+      }
+      this.zone[pid] = [];
+    }
   }
 
   cardDest(pid, card) {
@@ -2336,10 +2505,11 @@ export class View {
 
   // ---------------- パリィ
 
-  async runParry(pids) {
+  async runParry(pids, combo = false) {
     const ui = this.parryUi;
     ui.band.draw((ctx, w, h) => drawParryBand(ctx, w, h, pids));
-    ui.title.draw((ctx, w, h) => drawCenterText(ctx, w, h, 'パリィ準備…', '#ffffff', 30));
+    const ready = combo ? 'パリィ準備… 2人とも成功で連携パリィ！' : 'パリィ準備…';
+    ui.title.draw((ctx, w, h) => drawCenterText(ctx, w, h, ready, combo ? C.gold : '#ffffff', 30));
     const st = { pids, active: false, acc: {}, m: {}, finish: null };
     for (const pid of PIDS) {
       st.m[pid] = { pos: pid === 'p1' ? 0 : 1, dir: pid === 'p1' ? 1 : -1, stopped: !pids.includes(pid) };

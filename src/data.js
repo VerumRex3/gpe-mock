@@ -21,7 +21,7 @@ export const RULES = {
 export const TYPE_LABEL = { attack: '攻撃', parry: 'パリィ', buff: 'バフ', debuff: 'デバフ' };
 
 // hits: 敵へのダメージ列 / block: パリィの防御値 [最小, 最大] / success: パリィ成功時効果
-// fx: 使用時効果 / comboFx: 連携時効果
+// fx: 発動時効果 / comboFx: 連携時効果（combo: true の金枠カード）
 export const CARDS = {
   // ---- 1P アタッカー ----
   slash: { name: '斬撃', owner: 'p1', type: 'attack', cost: 1, hits: [6], text: '敵に6ダメージ' },
@@ -48,7 +48,10 @@ export const CARDS = {
     name: '守護の盾', owner: 'p2', type: 'parry', cost: 2, block: [2, 6], blockAll: true, success: { p1Bonus: 5 },
     text: '味方全員に防御2〜6\n成功：1Pの次の攻撃+5',
   },
-  manaGift: { name: '魔力供給', owner: 'p2', type: 'buff', cost: 3, fx: { p1Mana: 2 }, text: '1Pのマナ+2\n（上限を超えてよい）' },
+  manaGift: {
+    name: '魔力供給', owner: 'p2', type: 'buff', cost: 3, fx: { p1NextMana: 2 },
+    text: '次のターンの\n1Pのマナ+2\n（上限を超えてよい）',
+  },
   bind: { name: '呪縛', owner: 'p2', type: 'debuff', cost: 4, fx: { weak: [4, 2] }, text: '敵の与ダメージ-4\n（2ターン）' },
   mark: { name: '脆弱の印', owner: 'p2', type: 'debuff', cost: 3, fx: { vuln: [3, 2] }, text: '敵の被ダメージ\n1ヒットごと+3\n（2ターン）' },
   lamp: { name: '癒しの灯', owner: 'p2', type: 'buff', cost: 4, fx: { healAll: 8 }, text: '味方全員のHP+8' },
