@@ -2,7 +2,7 @@
 
 export const RULES = {
   playerMaxHp: 80,
-  enemyMaxHp: 340,
+  enemyMaxHp: 380,
   handSize: 3,
   rerollCost: 1,
   // マナ上限: ターン開始時に全回復。上限はターンごとに step ずつ変化し bound で止まる
@@ -77,11 +77,11 @@ export const ENEMY = {
   name: '灯火の翼竜',
   handSize: 5,
   cards: {
-    clawA: { name: '爪撃', kind: 'normal', target: 'p1', dmg: 13 },
-    clawB: { name: '爪撃', kind: 'normal', target: 'p2', dmg: 13 },
-    tail: { name: '尾薙ぎ', kind: 'normal', target: 'all', dmg: 9 },
-    bite: { name: '噛みつき', kind: 'normal', target: 'highHp', dmg: 17 },
-    flame: { name: '灯火の炎', kind: 'special', target: 'all', dmg: 7 },
+    clawA: { name: '爪撃', kind: 'normal', target: 'p1', dmg: 16 },
+    clawB: { name: '爪撃', kind: 'normal', target: 'p2', dmg: 16 },
+    tail: { name: '尾薙ぎ', kind: 'normal', target: 'all', dmg: 11 },
+    bite: { name: '噛みつき', kind: 'normal', target: 'highHp', dmg: 20 },
+    flame: { name: '灯火の炎', kind: 'special', target: 'all', dmg: 8 },
     wing: { name: '羽ばたき', kind: 'special', selfBlock: 15 },
     roar: { name: '咆哮', kind: 'special', strength: 3 },
   },
