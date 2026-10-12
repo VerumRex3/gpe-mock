@@ -283,25 +283,32 @@ export class Game {
 
   armedPids() { return this.alivePids().filter((pid) => this.players[pid].armed.length); }
 
-  // バーに参加する人。連携パリィが保留中なら、パリィカードを出していない人も参加する
+  // 全員向けの盾（blockAll）が構えられているか
+  sharedParry() { return this.armedPids().some((pid) => this.players[pid].armed.some((c) => c.blockAll)); }
+
+  // バーに参加する人。連携パリィの保留中か全員向けの盾があるときは、パリィカードを出していない人も参加する
   parryPids() {
     if (this.comboParry && this.alivePids().length === PIDS.length) return [...PIDS];
+    if (this.sharedParry()) return this.alivePids();
     return this.armedPids();
   }
 
   // accs: { p1?: 0..1, p2?: 0..1 } バー中央への近さ。止めなかった場合は 0
+  // 防御値は止めた本人の精度で決まり、中央で最大・端で最小。全員向けの盾は参加者それぞれの精度で配る
   resolveParry(accs) {
     const ev = [];
     const pids = this.parryPids();
+    const acc = {};
     const success = {};
     for (const pid of pids) {
-      const p = this.players[pid];
-      const acc = Math.max(0, Math.min(1, accs[pid] ?? 0));
-      success[pid] = acc >= RULES.parry.successAcc;
-      ev.push(log(`${LABEL[pid]} パリィ ${grade(acc)}`));
-      for (const card of p.armed) {
-        const v = Math.round(card.block[0] + (card.block[1] - card.block[0]) * acc);
-        for (const t of card.blockAll ? this.alivePids() : [pid]) this.gainBlock(t, v, ev);
+      acc[pid] = Math.max(0, Math.min(1, accs[pid] ?? 0));
+      success[pid] = acc[pid] >= RULES.parry.successAcc;
+      ev.push(log(`${LABEL[pid]} パリィ ${grade(acc[pid])}`));
+    }
+    const blockFor = (card, pid) => Math.round(card.block[0] + (card.block[1] - card.block[0]) * acc[pid]);
+    for (const pid of pids) {
+      for (const card of this.players[pid].armed) {
+        for (const t of card.blockAll ? pids : [pid]) this.gainBlock(t, blockFor(card, t), ev);
         if (success[pid]) this.applyFx(pid, card.success, ev);
       }
     }

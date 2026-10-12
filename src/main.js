@@ -138,7 +138,7 @@ async function enemyPhase() {
     if (card.kind === 'normal' && game.parryPids().length) {
       mode = 'parry';
       view.setPhase('parry');
-      const accs = await view.runParry(game.parryPids(), !!game.comboParry);
+      const accs = await view.runParry(game.parryPids());
       mode = 'enemy';
       view.setPhase('enemy');
       view.enqueue(game.resolveParry(accs));
