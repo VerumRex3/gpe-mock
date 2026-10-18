@@ -6,6 +6,8 @@
 **遊ぶ：** https://verumrex3.github.io/gpe-mock/
 1台のキーボードを2人で使います。タイトル画面で 1P は SPACE、2P は ENTER を押すと始まります。
 
+**カード一覧：** https://verumrex3.github.io/gpe-mock/cards.html （最新版のデータからゲームと同じ絵で描いています）
+
 上の URL は常に最新版です。各バージョンは次の URL で遊べます（当時のまま固定）。
 
 | バージョン | URL | 内容 |
@@ -70,6 +72,7 @@ H キーか右上の歯車で、ルールと操作の説明を表示します。
 | `src/game.js` | 戦闘ルール本体（描画から独立） |
 | `src/view.js` | three.js による描画と演出 |
 | `src/main.js` | 入力と進行（敵の行動の流れ） |
+| `cards.html`, `src/cards.js` | カード一覧ページ（`data.js` から描画） |
 | `tools/serve.py` | ローカル確認用サーバー |
 | `v0.1/`〜`v0.3/` | 各バージョンの固定コピー（同名の git タグから書き出したもの。編集しない） |
 

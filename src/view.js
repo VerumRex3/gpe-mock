@@ -198,7 +198,7 @@ function catmull(pts, seg) {
 }
 
 // 文字を含む全ソースから使用文字を集め、Web フォントの必要な分割ファイルを先読みする
-async function loadFonts() {
+export async function loadFonts() {
   if (!document.fonts) return;
   let text = '';
   try {
@@ -843,7 +843,7 @@ function cardText(card) {
   return card.text;
 }
 
-function drawCard(ctx, w, h, card, o) {
+export function drawCard(ctx, w, h, card, o) {
   if (!card) {
     rr(ctx, 6, 6, w - 12, h - 12, 12);
     ctx.fillStyle = 'rgba(0,0,0,0.22)';
@@ -1025,7 +1025,7 @@ function drawEnemyIcon(ctx, card, cx, cy) {
 
 const KIND_TAG = { attack: '攻撃・パリィ可', guard: '防御', special: '特殊' };
 
-function drawEnemyCard(ctx, w, h, card, dmg) {
+export function drawEnemyCard(ctx, w, h, card, dmg) {
   const col = KIND_COL[card.kind];
   rr(ctx, 3, 3, w - 6, h - 6, 18);
   ctx.fillStyle = '#1c1a20';
@@ -1053,9 +1053,13 @@ function drawEnemyCard(ctx, w, h, card, dmg) {
   ctx.fillStyle = '#ffffff';
   ctx.font = font(36);
   ctx.fillText(card.name, w / 2, 196);
-  ctx.font = font(18, 500);
+  const desc = describeEnemyCard(card, dmg);
+  // 1行に収まるなら少し縮めてでも1行にする
+  let fs = 18;
+  ctx.font = font(fs, 500);
+  while (ctx.measureText(desc).width > w - 32 && fs > 15) ctx.font = font(--fs, 500);
   ctx.fillStyle = '#f6eee0';
-  wrapLines(ctx, describeEnemyCard(card, dmg), w - 36).slice(0, 2).forEach((line, i) => ctx.fillText(line, w / 2, 232 + i * 24));
+  wrapLines(ctx, desc, w - 32).slice(0, 2).forEach((line, i) => ctx.fillText(line, w / 2, 232 + i * 24));
   drawHpBar(ctx, 22, h - 46, w - 44, 28, card.hp, card.maxHp, '#e0a33a', 'カード');
   if (card.broken) drawBroken(ctx, w, h, 1.6);
 }
