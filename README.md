@@ -6,6 +6,13 @@
 **遊ぶ：** https://verumrex3.github.io/gpe-mock/
 1台のキーボードを2人で使います。タイトル画面で 1P は SPACE、2P は ENTER を押すと始まります。
 
+上の URL は常に最新版です。過去のバージョンは次の URL で遊べます（当時のまま固定）。
+
+| バージョン | URL |
+|---|---|
+| v0.2 | https://verumrex3.github.io/gpe-mock/v0.2/ |
+| v0.1 | https://verumrex3.github.io/gpe-mock/v0.1/ |
+
 ## 操作
 
 | | 1P（左下・アタッカー） | 2P（右下・バッファー） |
@@ -53,6 +60,7 @@ H キーか右上の歯車で、ルールと操作の説明を表示します。
 | `src/view.js` | three.js による描画と演出 |
 | `src/main.js` | 入力とターン進行 |
 | `tools/serve.py` | ローカル確認用サーバー |
+| `v0.1/`, `v0.2/` | 過去バージョンの固定コピー（git タグ `v0.1`, `v0.2` から書き出したもの。編集しない） |
 
 ## ローカルで動かす
 
