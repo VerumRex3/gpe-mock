@@ -29,7 +29,6 @@ const ENCH_COL = { decay: '#8f5bd6', resist: '#3fa8c9', power: '#e0663a' };
 const PCOL = { p1: C.p1, p2: C.p2 };
 const PDARK = { p1: C.p1Dark, p2: C.p2Dark };
 const PLIGHT = { p1: C.p1Light, p2: C.p2Light };
-const ROLE = { p1: '弾丸で本体を削る', p2: 'アルカナで札を壊す' };
 export const KEYS = {
   p1: { move: 'A / D', use: 'SPACE', reroll: 'W', stock: 'S' },
   p2: { move: '← / →', use: 'ENTER', reroll: '↑', stock: '↓' },
@@ -38,34 +37,42 @@ const STOCK_ACT = { p1: '弾丸を撃つ', p2: 'アルカナ発動' };
 
 // 描画順（renderOrder）
 const L = {
-  bg: 0, motes: 1, header: 4, enemyCards: 6, enemy: 8, chars: 10, charUi: 12, field: 14, stock: 16, fx: 20,
+  bg: 0, header: 4, enemyCards: 6, enemy: 8, chars: 10, charUi: 12, field: 14, stock: 16, fx: 20,
   panels: 30, cards: 32, fly: 36, log: 38, reveal: 44, banner: 50, parry: 60, popup: 70,
   flash: 80, overlay: 90, help: 95,
 };
 
-// レイアウト（x は左端基準、top は上端基準）
+// レイアウト（x は中心、top は上端からの位置。値は画面案 1470×827 を 1920×1080 に拡大したもの）
 const POS = {
-  p1: { x: 430, feet: 792 },
-  p2: { x: 705, feet: 806 },
-  enemy: { x: 1330, top: 590 },
+  p1: { x: 486, feet: 722 },
+  p2: { x: 722, feet: 726 },
+  enemy: { x: 1325, top: 490 },
 };
-const HAND_X = { p1: [538, 704, 870], p2: [1050, 1216, 1382] };
-const CARD_W = 160;
-const CARD_H = 228;
-const HAND_TOP = H - CARD_H / 2 - 10;
+const HAND_X = { p1: [335, 543, 752], p2: [1160, 1369, 1579] };
+const CARD_W = 190;
+const CARD_H = 300;
+const HAND_TOP = 772 + CARD_H / 2;
 const TRACK = { x0: 250, x1: 1670, top: 228 };
-const REVEAL = { x: 960, top: 500 };
-// 弾倉（1P・左）と魔法陣（2P・右）
-const STOCK_POS = { p1: { x: 150, top: 500 }, p2: { x: 1795, top: 500 } };
-const STOCK_W = 230;
-const STOCK_H = 380;
+const REVEAL = { x: 960, top: 470 };
+// 敵カードは上の黒帯から吊るす
+const ESLOT = { xs: [538, 747, 956, 1165, 1374], top: 72, w: 186, h: 140 };
+// 弾倉（左上）と紋章（ルスカーの照準・ラティシアの魔法陣）
+const MAG = { x: 172, top: 276, w: 200, h: 230 };
+const EMBLEM = { p1: { x: 170, top: 540 }, p2: { x: 1730, top: 540 } };
+const EMBLEM_SIZE = 400;
+const NODE_R = 144; // 魔法陣の5つの点の半径
+// 左下・右下のボタン（引き直し・山札）
+const BTN = { p1: { x: 55 }, p2: { x: W - 55 }, reroll: 921, deck: 1025 };
+// 地面と下の黒帯の境目
+const GROUND = { top: 699, bottom: 781 };
 const MINI_W = 88;
 const MINI_H = 124;
+const GEAR = { x: 1872, top: 48 };
 
 const HELP = [
   ['目的', '灯火の翼竜の HP を0にするか、上に並ぶ敵の攻撃カード（赤）をすべて破壊すれば勝ち。2人とも倒れたら負け。'],
   ['行動値', 'ターンはなく、2人とも好きな順に操作できる（制限時間なし）。カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治は行動値を消費しない。'],
-  ['コスト', '初期値3で上限なし。カードを使うと、相方のコストが1回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。'],
+  ['コスト', '左右の紋章の赤い数字。初期値3で上限なし。カードを使うと、相方のコストが1回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。'],
   ['弾丸（ルスカー）', '再型で弾倉に1発ずつ装填（最大5）。S で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。'],
   ['アルカナ（ラティシア）', '占星統治で魔法陣に1つずつ補填（最大5）。↓ で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、次に敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵の行動のあと、魔法陣のアルカナはすべて捨て札に行く。'],
   ['パリィ', 'パリィカードを使うと「構え」になり、次の敵の攻撃カードでバーが出る。中央で止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。「全員でパリィ」のカードを構えていると2人ともバーに参加する。'],
@@ -218,90 +225,48 @@ export async function loadFonts() {
 // ------------------------------------------------------------------ 描画: 背景・キャラ
 
 function drawBackground(ctx, w, h) {
-  const r = rng(11);
-  const sky = ctx.createLinearGradient(0, 0, 0, 700);
-  sky.addColorStop(0, '#b4c7c5');
-  sky.addColorStop(1, '#e3eae0');
+  const sky = ctx.createLinearGradient(0, 120, 0, GROUND.top);
+  sky.addColorStop(0, '#e1e4e3');
+  sky.addColorStop(1, '#d2d9d8');
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, w, h);
-  // 遠景の幹
-  for (let i = 0; i < 16; i++) {
-    ctx.fillStyle = `rgba(105, 108, 104, ${0.14 + r() * 0.14})`;
-    ctx.fillRect(r() * w, 0, 26 + r() * 40, 690);
-  }
-  // 近景の幹
-  for (const base of [130, 560, 1010, 1390, 1790]) {
-    const x = base + (r() - 0.5) * 70;
-    const tw = 92 + r() * 46;
-    const g = ctx.createLinearGradient(x, 0, x + tw, 0);
-    g.addColorStop(0, '#463c3a');
-    g.addColorStop(0.55, '#5d514e');
-    g.addColorStop(1, '#3b3230');
-    ctx.fillStyle = g;
+  // 遠くの山（奥ほど薄い）
+  const ridge = (base, amp, col, seed) => {
+    const r = rng(seed);
+    const ph = [r() * 6, r() * 6, r() * 6];
+    ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x + tw, 0);
-    ctx.lineTo(x + tw + 16, 700);
-    ctx.lineTo(x - 16, 700);
+    ctx.moveTo(0, GROUND.top);
+    for (let x = 0; x <= w; x += 12) {
+      const y = base - amp * (0.55 * Math.sin(x / 260 + ph[0]) + 0.3 * Math.sin(x / 120 + ph[1]) + 0.15 * Math.sin(x / 47 + ph[2]));
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, GROUND.top);
     ctx.closePath();
     ctx.fill();
-  }
-  // 木漏れ日
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 5; i++) {
-    const x = 260 + i * 370 + r() * 120;
-    const g = ctx.createLinearGradient(x, 0, x - 260, 760);
-    g.addColorStop(0, 'rgba(255, 248, 220, 0.12)');
-    g.addColorStop(1, 'rgba(255, 248, 220, 0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x + 90, 0);
-    ctx.lineTo(x - 170, 760);
-    ctx.lineTo(x - 300, 760);
-    ctx.closePath();
-    ctx.fill();
-  }
-  ctx.restore();
-  // 林冠
-  ctx.fillStyle = '#2f4936';
-  for (let x = -20; x < w + 80; x += 64) {
-    ctx.beginPath();
-    ctx.arc(x, 40 + r() * 40, 52 + r() * 24, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // 茂み
-  ctx.fillStyle = '#26361f';
-  for (let x = -40; x < w + 80; x += 66) {
-    ctx.beginPath();
-    ctx.arc(x, 612 + r() * 26, 56 + r() * 30, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.fillRect(0, 620, w, 80);
-  ctx.fillStyle = '#304629';
-  for (let x = -20; x < w + 80; x += 90) {
-    ctx.beginPath();
-    ctx.arc(x, 676 + r() * 16, 40 + r() * 18, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  };
+  ridge(470, 70, '#c3ced0', 3);
+  ridge(560, 60, '#b1c0c3', 8);
+  ridge(640, 40, '#a7b8bb', 21);
   // 地面
-  const gg = ctx.createLinearGradient(0, 690, 0, h);
-  gg.addColorStop(0, '#56694a');
-  gg.addColorStop(1, '#3a4b34');
-  ctx.fillStyle = gg;
-  ctx.fillRect(0, 690, w, h - 690);
-  ctx.strokeStyle = 'rgba(30, 45, 25, 0.35)';
-  ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
-  for (let i = 0; i < 90; i++) {
-    const x = r() * w;
-    const y = 710 + r() * 360;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + 4 + r() * 6, y - 8 - r() * 10);
-    ctx.stroke();
-  }
+  ctx.fillStyle = '#c8b694';
+  ctx.fillRect(0, GROUND.top, w, GROUND.bottom - GROUND.top);
+  ctx.fillStyle = 'rgba(90, 70, 40, 0.12)';
+  ctx.fillRect(0, GROUND.top, w, 4);
+  // 下の黒帯（手札の台）
+  ctx.fillStyle = '#f4f4f2';
+  ctx.fillRect(0, GROUND.bottom, w, 6);
+  ctx.fillStyle = '#0b0b0d';
+  ctx.fillRect(0, GROUND.bottom + 6, w, h - GROUND.bottom - 6);
+  // 上の黒帯（敵カードの吊り元）
+  ctx.fillStyle = '#0b0b0d';
+  ctx.fillRect(0, 0, w, 104);
+  ctx.fillStyle = '#bfc4c4';
+  ctx.fillRect(0, 104, w, 8);
+  ctx.fillStyle = '#0b0b0d';
+  ctx.fillRect(0, 112, w, 3);
+  ctx.fillStyle = '#f4f4f2';
+  ctx.fillRect(0, 115, w, 12);
 }
 
 function drawHero(ctx, w, h, pid) {
@@ -728,8 +693,10 @@ function drawIcon(ctx, type, cx, cy, s, color) {
     arrow();
     ctx.restore();
   } else if (type.startsWith('bullet')) {
+    ctx.save();
     ctx.rotate(Math.PI / 4);
     drawBulletShape(ctx, 0, 0, 1);
+    ctx.restore();
   } else if (type.startsWith('arcana')) {
     drawArcanaShape(ctx, 0, 0, 0.9, color);
   } else if (type === 'enchant') {
@@ -846,92 +813,90 @@ function cardText(card) {
 export function drawCard(ctx, w, h, card, o) {
   if (!card) {
     rr(ctx, 6, 6, w - 12, h - 12, 12);
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.fill();
     ctx.setLineDash([6, 6]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
     ctx.lineWidth = 2;
     ctx.stroke();
     return;
   }
   const typeCol = C[card.type];
-  rr(ctx, 2, 2, w - 4, h - 4, 14);
-  ctx.fillStyle = card.combo ? C.gold : PCOL[card.owner];
+  // 白いカード。金枠（連携）は外周を金にする
+  rr(ctx, 2, 2, w - 4, h - 4, 12);
+  ctx.fillStyle = card.combo ? C.gold : '#ffffff';
   ctx.fill();
-  rr(ctx, 8, 8, w - 16, h - 16, 10);
-  ctx.fillStyle = C.cream;
+  rr(ctx, card.combo ? 8 : 4, card.combo ? 8 : 4, w - (card.combo ? 16 : 8), h - (card.combo ? 16 : 8), 9);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.stroke();
+  const ix = card.combo ? 8 : 4;
+  // 名前の帯（種類の色）
   ctx.save();
-  rr(ctx, 8, 8, w - 16, h - 16, 10);
+  rr(ctx, ix, ix, w - ix * 2, h - ix * 2, 9);
   ctx.clip();
   ctx.fillStyle = typeCol;
-  ctx.fillRect(8, 8, w - 16, 42);
-  ctx.fillStyle = mix(typeCol, '#ffffff', 0.72);
-  ctx.fillRect(8, 50, w - 16, 58);
-  ctx.strokeStyle = mix(typeCol, '#ffffff', 0.6);
-  ctx.lineWidth = 6;
-  for (let x = -40; x < w + 40; x += 18) {
-    ctx.beginPath();
-    ctx.moveTo(x, 108);
-    ctx.lineTo(x + 58, 50);
-    ctx.stroke();
-  }
+  ctx.fillRect(0, 0, w, 50);
+  ctx.fillStyle = mix(typeCol, '#ffffff', 0.86);
+  ctx.fillRect(0, 50, w, 106);
   ctx.restore();
-  drawIcon(ctx, iconOf(card), w / 2, 79, 1, mix(typeCol, '#000000', 0.12));
-  if (card.combo) drawChain(ctx, w - 28, 92, '#9a6f08');
+  drawIcon(ctx, iconOf(card), w / 2, 100, 1.25, typeCol);
+  if (card.combo) drawChain(ctx, w - 30, 136, '#9a6f08');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
-  let fs = 20;
+  let fs = 22;
   ctx.font = font(fs);
-  while (ctx.measureText(card.name).width > w - 64 && fs > 12) ctx.font = font(--fs);
-  ctx.fillText(card.name, w / 2 + 13, 30);
+  while (ctx.measureText(card.name).width > w - 70 && fs > 13) ctx.font = font(--fs);
+  ctx.fillText(card.name, w / 2 + 16, 29);
   // コスト
   ctx.beginPath();
-  ctx.arc(25, 25, 19, 0, Math.PI * 2);
-  ctx.fillStyle = o.costOk ? '#13222c' : '#4a1c1c';
+  ctx.arc(27, 27, 20, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = o.costOk ? C.mana : '#ff8080';
+  ctx.strokeStyle = o.costOk ? '#1a1a1a' : '#d23a3a';
   ctx.stroke();
-  ctx.fillStyle = o.costOk ? C.mana : '#ffa0a0';
-  ctx.font = font(22);
-  ctx.fillText(String(card.cost), 25, 26);
+  ctx.fillStyle = o.costOk ? '#1a1a1a' : '#d23a3a';
+  ctx.font = font(24);
+  ctx.fillText(String(card.cost), 27, 28);
   // 種別
   const label = TYPE_LABEL[card.type] + (card.combo ? '・連携' : '');
-  ctx.font = font(12);
-  const lw = ctx.measureText(label).width + 18;
-  rr(ctx, w / 2 - lw / 2, 100, lw, 21, 10.5);
+  ctx.font = font(13);
+  const lw = ctx.measureText(label).width + 20;
+  rr(ctx, w / 2 - lw / 2, 145, lw, 23, 11.5);
   ctx.fillStyle = card.combo ? C.gold : typeCol;
   ctx.fill();
   ctx.fillStyle = card.combo ? '#3a2a00' : '#ffffff';
-  ctx.fillText(label, w / 2, 111);
+  ctx.fillText(label, w / 2, 157);
   // 効果文
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.font = font(13, 500);
-  ctx.fillStyle = C.ink;
-  let y = 142;
-  for (const line of wrapLines(ctx, cardText(card), w - 26)) {
-    ctx.fillText(line, 13, y);
-    y += 17;
+  ctx.font = font(15, 500);
+  ctx.fillStyle = '#1a1a1a';
+  let y = 194;
+  for (const line of wrapLines(ctx, cardText(card), w - 30)) {
+    ctx.fillText(line, 15, y);
+    y += 20;
   }
   if (card.comboText) {
-    ctx.font = font(12);
+    ctx.font = font(13);
     ctx.fillStyle = '#8a5d00';
-    for (const line of wrapLines(ctx, `連携：${card.comboText}`, w - 26)) {
-      ctx.fillText(line, 13, y + 3);
-      y += 15;
+    for (const line of wrapLines(ctx, `連携：${card.comboText}`, w - 30)) {
+      ctx.fillText(line, 15, y + 4);
+      y += 17;
     }
   }
   if (!o.affordable || o.inactive) {
-    rr(ctx, 2, 2, w - 4, h - 4, 14);
-    ctx.fillStyle = o.inactive ? 'rgba(16, 14, 24, 0.42)' : 'rgba(16, 14, 24, 0.5)';
+    rr(ctx, 2, 2, w - 4, h - 4, 12);
+    ctx.fillStyle = o.inactive ? 'rgba(10, 10, 14, 0.35)' : 'rgba(10, 10, 14, 0.5)';
     ctx.fill();
   }
   if (o.comboHint) {
-    rr(ctx, 3, 3, w - 6, h - 6, 14);
-    ctx.lineWidth = 5;
+    rr(ctx, 3, 3, w - 6, h - 6, 12);
+    ctx.lineWidth = 6;
     ctx.strokeStyle = '#ffe07a';
     ctx.stroke();
   }
@@ -982,11 +947,11 @@ function drawCardGlow(ctx, w, h, color) {
   ctx.fill();
 }
 
-function drawEnemyIcon(ctx, card, cx, cy) {
+function drawEnemyIcon(ctx, card, cx, cy, color = 'rgba(255,255,255,0.92)') {
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
   ctx.lineCap = 'round';
   if (card.id.startsWith('claw') || card.id === 'bite') {
     ctx.lineWidth = 9;
@@ -1008,7 +973,7 @@ function drawEnemyIcon(ctx, card, cx, cy) {
   } else if (card.id === 'wing') {
     ctx.translate(-64, -48);
     ctx.scale(0.4, 0.45);
-    drawWing(ctx, 340, 220, 'rgba(255,255,255,0.92)');
+    drawWing(ctx, 340, 220, color);
   } else {
     ctx.lineWidth = 7;
     for (const r of [18, 36, 54]) {
@@ -1064,29 +1029,36 @@ export function drawEnemyCard(ctx, w, h, card, dmg) {
   if (card.broken) drawBroken(ctx, w, h, 1.6);
 }
 
-// 上に並ぶ敵カード（小）。表向きで、カードの HP も出す
+// 上に吊るす敵カード（小）。表向きで、カードの HP も出す
 function drawEnemySlot(ctx, w, h, card) {
-  const col = card.broken ? '#3c3c42' : KIND_COL[card.kind];
-  rr(ctx, 2, 2, w - 4, h - 4, 10);
-  ctx.fillStyle = '#1c1a20';
+  const col = card.broken ? '#6a6a70' : KIND_COL[card.kind];
+  rr(ctx, 2, -12, w - 4, h + 10, 10);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
-  rr(ctx, 6, 6, w - 12, h - 12, 7);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.stroke();
+  ctx.save();
+  rr(ctx, 2, -12, w - 4, h + 10, 10);
+  ctx.clip();
   ctx.fillStyle = col;
-  ctx.fill();
+  ctx.fillRect(0, 0, w, 26);
+  ctx.restore();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  ctx.font = font(12);
-  ctx.fillText(KIND_LABEL[card.kind], w / 2, 19);
-  ctx.save();
-  ctx.translate(w / 2, 64);
-  ctx.scale(0.5, 0.5);
-  drawEnemyIcon(ctx, card, 0, 0);
-  ctx.restore();
   ctx.fillStyle = '#ffffff';
-  ctx.font = font(18);
-  ctx.fillText(card.name, w / 2, 106);
-  drawHpBar(ctx, 10, h - 34, w - 20, 22, card.hp, card.maxHp, '#e0a33a');
+  ctx.font = font(14);
+  ctx.fillText(KIND_TAG[card.kind], w / 2, 14);
+  ctx.save();
+  ctx.translate(w / 2 - 44, 66);
+  ctx.scale(0.42, 0.42);
+  drawEnemyIcon(ctx, card, 0, 0, col);
+  ctx.restore();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.font = font(22);
+  ctx.textAlign = 'left';
+  ctx.fillText(card.name, w / 2 - 14, 66);
+  drawHpBar(ctx, 12, h - 36, w - 24, 26, card.hp, card.maxHp, '#e0a33a');
   if (card.broken) drawBroken(ctx, w, h, 1);
 }
 
@@ -1112,71 +1084,37 @@ function drawBroken(ctx, w, h, s) {
 
 // ------------------------------------------------------------------ 描画: UI
 
-function drawHeader(ctx, w) {
-  ctx.fillStyle = C.teal;
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(w, 0);
-  ctx.lineTo(w, 66);
-  ctx.lineTo(1540, 66);
-  ctx.lineTo(1500, 106);
-  ctx.lineTo(420, 106);
-  ctx.lineTo(380, 66);
-  ctx.lineTo(0, 66);
-  ctx.closePath();
-  ctx.fill();
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = C.tealDark;
-  ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(0, 56);
-  ctx.lineTo(380, 56);
-  ctx.moveTo(1540, 56);
-  ctx.lineTo(w, 56);
-  ctx.stroke();
-}
-
-function drawTurnBadge(ctx, w, h, turn) {
-  ctx.beginPath();
-  ctx.arc(w / 2, 0, 112, 0, Math.PI);
-  ctx.closePath();
-  ctx.fillStyle = C.tealDark;
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(w / 2, 0, 102, 0, Math.PI);
-  ctx.closePath();
-  ctx.fillStyle = '#3fa3bb';
-  ctx.fill();
-  ctx.textAlign = 'center';
+function drawRound(ctx, w, h, round) {
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#e8fbff';
-  ctx.font = font(18);
-  ctx.fillText('ROUND', w / 2, 30);
-  ctx.font = font(50);
-  ctx.fillText(turn ? String(turn) : '-', w / 2, 74);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = font(20);
+  ctx.fillText('ROUND', 28, h / 2 + 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(44);
+  ctx.fillText(String(round), 122, h / 2 + 2);
 }
 
+// 右上の歯車（白い円に黒い歯車）
 function drawGear(ctx, w, h) {
   const cx = w / 2;
   const cy = h / 2;
   ctx.beginPath();
-  ctx.arc(cx, cy, 40, 0, Math.PI * 2);
-  ctx.fillStyle = C.tealDark;
+  ctx.arc(cx, cy, 56, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
-  ctx.fillStyle = '#bfe9f2';
+  ctx.fillStyle = '#111111';
   ctx.beginPath();
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
-    const r = i % 2 ? 22 : 29;
+    const r = i % 2 ? 26 : 36;
     ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
   }
   ctx.closePath();
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(cx, cy, 10, 0, Math.PI * 2);
-  ctx.fillStyle = C.tealDark;
+  ctx.arc(cx, cy, 13, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
 }
 
@@ -1255,8 +1193,6 @@ function drawHpBar(ctx, x, y, w, h, hp, maxHp, color, label = '') {
 }
 
 function drawCharPanel(ctx, w, h, pid, d, p, game) {
-  drawHpBar(ctx, 36, 4, w - 40, 32, d.hp, p.maxHp, PCOL[pid], LABEL[pid]);
-  drawShield(ctx, 18, 20, 0.95, d.block);
   const chips = [];
   // 幅に収まらない分は落ちるので、重要なものから並べる
   if (d.hp <= 0) chips.push(['戦闘不能', '#555555']);
@@ -1265,37 +1201,77 @@ function drawCharPanel(ctx, w, h, pid, d, p, game) {
   if (p.armed.length) chips.push([p.armed.length > 1 ? `構え×${p.armed.length}` : '構え', C.parry]);
   if (p.rapid) chips.push([p.rapid > 1 ? `速射×${p.rapid}` : '速射', C.bullet]);
   if (p.nextBonus) chips.push([`次の攻撃+${p.nextBonus}`, C.buff]);
-  drawChips(ctx, chips, 2, 46, w);
+  drawChips(ctx, chips, 34, 2, w);
+  // 頭上の HP バー（キャラの色）
+  drawHpBar(ctx, 34, 34, w - 38, 30, d.hp, p.maxHp, PCOL[pid]);
+  drawShield(ctx, 16, 49, 0.95, d.block);
 }
 
-// 行動値: 敵が動くまでの残り回数を丸で並べる
-function drawActionPill(ctx, w, h, game, phase) {
-  rr(ctx, 2, 2, w - 4, h - 4, (h - 4) / 2);
-  const enemy = phase === 'enemy' || phase === 'parry';
-  ctx.fillStyle = enemy ? 'rgba(110, 24, 30, 0.86)' : 'rgba(10, 30, 36, 0.78)';
+// 状況の一言（敵の行動中・パリィ中は赤）
+function drawPhasePill(ctx, w, h, phase) {
+  const text = {
+    player: 'カードを使う・引き直すたびに、敵の行動値 −1', enemy: '敵の行動', parry: 'パリィ！',
+  }[phase];
+  if (!text) return;
+  const calm = phase === 'player';
+  drawPill(ctx, w, h, text, { bg: calm ? 'rgba(20, 22, 26, 0.78)' : 'rgba(150, 26, 30, 0.9)', size: calm ? 17 : 22 });
+}
+
+// 敵の頭上: 行動値（黒いバーと赤い数字）
+function drawActionBar(ctx, w, h, game) {
+  const bx = 40;
+  const bw = w - 80;
+  const by = h - 34;
+  rr(ctx, bx, by, bw, 28, 6);
+  ctx.fillStyle = '#111111';
   ctx.fill();
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffffff';
-  if (enemy) {
-    ctx.textAlign = 'center';
-    ctx.font = font(24);
-    ctx.fillText(phase === 'parry' ? 'パリィ！' : '敵の行動', w / 2, h / 2 + 1);
-    return;
-  }
-  ctx.textAlign = 'left';
-  ctx.font = font(20);
-  ctx.fillText('敵の行動まで', 26, h / 2 + 1);
   const n = game.avMax;
-  const x0 = 170;
+  const gap = 6;
+  const sw = (bw - 12 - gap * (n - 1)) / n;
   for (let i = 0; i < n; i++) {
-    ctx.beginPath();
-    ctx.arc(x0 + i * 30, h / 2, 10, 0, Math.PI * 2);
-    ctx.fillStyle = i < game.av ? '#ff8f7a' : 'rgba(255,255,255,0.16)';
+    rr(ctx, bx + 6 + i * (sw + gap), by + 6, sw, 16, 4);
+    ctx.fillStyle = i < game.av ? '#e8463c' : 'rgba(255,255,255,0.12)';
     ctx.fill();
   }
-  ctx.font = font(30);
-  ctx.fillStyle = game.av <= 1 ? '#ff8f7a' : '#ffffff';
-  ctx.fillText(`あと ${game.av}`, x0 + n * 30 + 6, h / 2 + 2);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = font(64);
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeText(String(game.av), w / 2, by + 10);
+  ctx.fillStyle = '#e02a24';
+  ctx.fillText(String(game.av), w / 2, by + 10);
+  ctx.font = font(14);
+  ctx.fillStyle = '#333333';
+  ctx.textAlign = 'left';
+  ctx.fillText('敵の行動まで', bx, by - 8);
+}
+
+function drawEnemyHp(ctx, w, h, d, e) {
+  drawHpBar(ctx, 40, 4, w - 44, 34, d.hp, e.maxHp, '#177d94');
+  drawShield(ctx, 20, 21, 1, d.block);
+}
+
+// 敵の足もと: 名札と状態
+function drawEnemyName(ctx, w, h, e) {
+  ctx.font = font(20);
+  const nw = ctx.measureText(e.name).width + 56;
+  rr(ctx, (w - nw) / 2, 2, nw, 38, 19);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(e.name, w / 2, 22);
+  const chips = [];
+  if (e.frenzy) chips.push(['激昂', '#c4473b']);
+  if (e.strength) chips.push([`咆哮 攻撃+${e.strength}`, '#9b2c34']);
+  if (e.decay) chips.push([`崩壊×${e.decay}`, ENCH_COL.decay]);
+  if (e.resist) chips.push([`抵抗×${e.resist}`, ENCH_COL.resist]);
+  ctx.font = font(14);
+  const total = chips.reduce((a, [t]) => a + ctx.measureText(t).width + 22, 0);
+  drawChips(ctx, chips, Math.max(0, (w - total) / 2), 48, w);
 }
 
 // 連携の成立状況（金枠を使った人がいるときだけ）
@@ -1309,264 +1285,305 @@ function drawComboPill(ctx, w, h, game) {
   }
 }
 
-function drawEnemyPanel(ctx, w, h, d, e) {
-  ctx.font = font(20);
-  const nw = ctx.measureText(e.name).width + 44;
-  rr(ctx, (w - nw) / 2, 0, nw, 34, 17);
-  ctx.fillStyle = '#f6f4ef';
-  ctx.fill();
-  ctx.fillStyle = '#2a2a2a';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(e.name, w / 2, 18);
-  drawHpBar(ctx, 40, 42, w - 44, 32, d.hp, e.maxHp, C.teal);
-  drawShield(ctx, 20, 58, 0.95, d.block);
-  const chips = [];
-  if (e.frenzy) chips.push(['激昂', '#c4473b']);
-  if (e.strength) chips.push([`咆哮 攻撃+${e.strength}`, '#9b2c34']);
-  if (e.decay) chips.push([`崩壊×${e.decay}`, ENCH_COL.decay]);
-  if (e.resist) chips.push([`抵抗×${e.resist}`, ENCH_COL.resist]);
-  drawChips(ctx, chips, 40, 82, w);
-}
-
-function drawPanel(ctx, w, h, pid, p, game, phase) {
-  const mirror = pid === 'p2';
-  ctx.save();
-  if (mirror) {
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
-  }
-  ctx.beginPath();
-  ctx.moveTo(0, 8);
-  ctx.lineTo(w - 78, 8);
-  ctx.lineTo(w, h);
-  ctx.lineTo(0, h);
-  ctx.closePath();
-  ctx.fillStyle = PCOL[pid];
-  ctx.fill();
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = PDARK[pid];
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(0, 15);
-  ctx.lineTo(w - 76, 15);
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.restore();
-
-  const x0 = mirror ? 96 : 24;
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff';
-  ctx.font = font(30);
-  ctx.fillText(NAME[pid], x0, 47);
-  const nameW = ctx.measureText(NAME[pid]).width;
-  ctx.font = font(17);
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  ctx.fillText(`${LABEL[pid]}・${ROLE[pid]}`, x0 + nameW + 14, 49);
-  // コスト（上限なし）
-  const { cost } = p;
-  ctx.beginPath();
-  ctx.arc(x0 + 34, 140, 34, 0, Math.PI * 2);
-  ctx.fillStyle = '#0e0f12';
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = C.mana;
-  ctx.stroke();
-  ctx.fillStyle = '#ffffff';
-  ctx.font = font(cost >= 100 ? 28 : 38);
-  ctx.textAlign = 'center';
-  ctx.fillText(String(cost), x0 + 34, 143);
-  ctx.textAlign = 'left';
-  ctx.font = font(16);
-  ctx.fillStyle = C.mana;
-  ctx.fillText('COST', x0 + 84, 104);
-  ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.font = font(14, 500);
-  ctx.fillText('上限なし', x0 + 134, 104);
-  // 10個を超えた分は数字で足す
-  for (let i = 0; i < 10; i++) {
-    const x = x0 + 84 + i * 26;
-    rr(ctx, x, 122, 22, 36, 6);
-    ctx.fillStyle = i < cost ? C.mana : 'rgba(0,0,0,0.4)';
-    ctx.fill();
-  }
-  if (cost > 10) {
-    ctx.fillStyle = C.gold;
-    ctx.font = font(18);
-    ctx.fillText(`+${cost - 10}`, x0 + 84 + 10 * 26 + 2, 141);
-  }
-  if (p.hp <= 0) {
-    ctx.font = font(17);
-    rr(ctx, x0 + 84, 166, 100, 30, 15);
-    ctx.fillStyle = '#555555';
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText('戦闘不能', x0 + 99, 182);
-  }
-  ctx.font = font(15, 500);
-  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+// 手札の上（地面の帯）: 名前と操作
+function drawHint(ctx, w, h, pid) {
   const k = KEYS[pid];
-  ctx.fillText(`${k.move} 選択　${k.use} 使う　${k.stock} ${STOCK_ACT[pid]}　${k.reroll} 引き直し`, x0, 214);
-}
-
-function drawTrash(ctx, w, h, pid) {
-  ctx.beginPath();
-  ctx.arc(55, 56, 42, 0, Math.PI * 2);
-  ctx.fillStyle = '#f4f1ea';
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(55, 56, 35, 0, Math.PI * 2);
-  ctx.fillStyle = PCOL[pid];
-  ctx.fill();
-  ctx.fillStyle = '#f4f1ea';
-  rr(ctx, 41, 46, 28, 29, 4);
-  ctx.fill();
-  ctx.fillRect(37, 38, 36, 5);
-  ctx.fillRect(49, 33, 12, 5);
-  ctx.fillStyle = PCOL[pid];
-  for (const x of [46.5, 53.5, 60.5]) ctx.fillRect(x, 50, 3, 21);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = font(14);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`${KEYS[pid].reroll} 引き直し`, 55, 108);
+  ctx.font = font(17);
+  const name = `${LABEL[pid]} ${NAME[pid]}`;
+  const keys = `${k.move} 選択　${k.use} 使う　${k.reroll} 引き直し`;
+  ctx.font = font(15, 500);
+  const kw = ctx.measureText(keys).width;
+  ctx.font = font(17);
+  const nw = ctx.measureText(name).width;
+  const x0 = (w - (nw + 18 + kw)) / 2;
+  rr(ctx, x0 - 12, 4, nw + 24, h - 8, (h - 8) / 2);
+  ctx.fillStyle = PCOL[pid];
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'left';
+  ctx.fillText(name, x0, h / 2 + 1);
+  ctx.font = font(15, 500);
+  ctx.fillStyle = '#3a3226';
+  ctx.fillText(keys, x0 + nw + 26, h / 2 + 1);
 }
 
-// 弾倉: 上ほど次に撃つ弾。付いた加護は弾の帯の色で出す
-function drawMagazine(ctx, w, h, p, active) {
-  rr(ctx, 4, 4, w - 8, h - 8, 18);
-  ctx.fillStyle = 'rgba(14, 12, 22, 0.72)';
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = PLIGHT.p1;
-  ctx.stroke();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+// 左右の下のボタン: 引き直し（回る矢印）・山札（重なったカード）
+function drawButton(ctx, w, h, kind, label) {
+  const cx = w / 2;
+  const cy = 42;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 34, 0, Math.PI * 2);
   ctx.fillStyle = '#ffffff';
-  ctx.font = font(18);
-  ctx.fillText('弾倉', w / 2, 26);
-  const n = RULES.stockMax;
-  for (let i = 0; i < n; i++) {
-    // 上の段ほど後から装填した弾（＝次に撃つ弾）
-    const idx = n - 1 - i;
-    const y = 50 + i * 50;
-    const s = p.stock[idx];
-    rr(ctx, 18, y, w - 36, 42, 10);
-    ctx.fillStyle = s ? 'rgba(255, 236, 190, 0.12)' : 'rgba(255,255,255,0.04)';
+  ctx.fill();
+  ctx.strokeStyle = '#111111';
+  ctx.fillStyle = '#111111';
+  ctx.lineCap = 'round';
+  if (kind === 'reroll') {
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 17, -Math.PI * 0.35, Math.PI * 1.45);
+    ctx.stroke();
+    const a = -Math.PI * 0.35;
+    const ax = cx + Math.cos(a) * 17;
+    const ay = cy + Math.sin(a) * 17;
+    ctx.beginPath();
+    ctx.moveTo(ax + 9, ay - 3);
+    ctx.lineTo(ax - 4, ay - 10);
+    ctx.lineTo(ax - 2, ay + 6);
+    ctx.closePath();
     ctx.fill();
+  } else {
+    for (const dy of [10, 0, -10]) {
+      ctx.save();
+      ctx.translate(cx, cy + dy);
+      ctx.scale(1, 0.42);
+      ctx.beginPath();
+      ctx.arc(0, 0, 20, 0, Math.PI * 2);
+      ctx.fillStyle = '#111111';
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = font(13);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, cx, h - 10);
+}
+
+// 弾倉: 上の段ほど後から装填した弾（＝次に撃つ弾）。付いた加護は帯の色で出す
+function drawMagazine(ctx, w, h, p) {
+  const n = RULES.stockMax;
+  const rows = [...p.stock].reverse();
+  for (let i = 0; i < n; i++) {
+    const y = 22 + i * 42;
+    const s = rows[i];
+    const x = 26;
     if (!s) {
       ctx.setLineDash([5, 5]);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.strokeStyle = 'rgba(20,20,20,0.25)';
+      rr(ctx, x, y - 9, 110, 18, 4);
       ctx.stroke();
       ctx.setLineDash([]);
       continue;
     }
-    const top = idx === p.stock.length - 1;
-    if (top) {
+    // 黒い弾（右向き）。左端に白い刻み
+    ctx.fillStyle = '#111111';
+    ctx.beginPath();
+    ctx.moveTo(x, y - 11);
+    ctx.lineTo(x + 96, y - 11);
+    ctx.lineTo(x + 122, y);
+    ctx.lineTo(x + 96, y + 11);
+    ctx.lineTo(x, y + 11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 6, y - 7, 4, 14);
+    s.card.boons.slice(0, 4).forEach((b, j) => {
+      ctx.fillStyle = ENCH_COL[b];
+      ctx.fillRect(x + 20 + j * 18, y - 7, 14, 14);
+    });
+    if (i === 0) {
       ctx.lineWidth = 3;
       ctx.strokeStyle = C.gold;
+      ctx.beginPath();
+      ctx.moveTo(x - 4, y - 15);
+      ctx.lineTo(x + 98, y - 15);
+      ctx.lineTo(x + 128, y);
+      ctx.lineTo(x + 98, y + 15);
+      ctx.lineTo(x - 4, y + 15);
+      ctx.closePath();
       ctx.stroke();
     }
-    ctx.save();
-    ctx.translate(46, y + 21);
-    ctx.rotate(Math.PI / 2);
-    drawBulletShape(ctx, 0, 0, 0.62, s.card.boons);
-    ctx.restore();
-    ctx.textAlign = 'left';
+    ctx.fillStyle = '#1a1a1a';
     ctx.font = font(18);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(String(bulletDamage(s.card)), 80, y + 22);
-    const names = s.card.boons.map((b) => ENCHANT[b].name).join('・');
-    ctx.font = font(12);
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.fillText(names || (top ? '次弾' : ''), 108, y + 22);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(bulletDamage(s.card)), x + 136, y + 1);
   }
-  ctx.textAlign = 'center';
-  ctx.font = font(15);
-  ctx.fillStyle = active ? '#ffffff' : 'rgba(255,255,255,0.45)';
-  ctx.fillText(`${KEYS.p1.stock}：撃つ（コスト1）`, w / 2, h - 46);
-  ctx.font = font(13, 500);
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fillText(`${p.stock.length} / ${n} 発`, w / 2, h - 22);
 }
 
-// 魔法陣: 1〜5の順に埋まり、発動待ちのものが光る。運命超過の属性は色で出す
-function drawCircle(ctx, w, h, p, active) {
-  rr(ctx, 4, 4, w - 8, h - 8, 18);
-  ctx.fillStyle = 'rgba(14, 12, 22, 0.72)';
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = PLIGHT.p2;
-  ctx.stroke();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffffff';
-  ctx.font = font(18);
-  ctx.fillText('魔法陣', w / 2, 26);
+// 紋章: ルスカーは照準、ラティシアは魔法陣。赤丸の数字がコスト
+function drawEmblem(ctx, w, h, pid, p, active) {
   const cx = w / 2;
-  const cy = 166;
-  ctx.strokeStyle = 'rgba(255, 222, 170, 0.35)';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(cx, cy, 80, 0, Math.PI * 2);
-  ctx.stroke();
-  drawArcanaShape(ctx, cx, cy, 0.9, 'rgba(255,255,255,0.18)', 'rgba(14,12,22,0.9)');
-  for (let i = 0; i < RULES.stockMax; i++) {
-    const [x, y] = circleNode(i, cx, cy);
-    const s = p.stock[i];
+  const cy = h / 2 - 10;
+  if (pid === 'p1') {
+    // 照準
+    ctx.strokeStyle = '#111111';
+    ctx.lineWidth = 7;
+    ctx.setLineDash([26, 14]);
     ctx.beginPath();
-    ctx.arc(x, y, 24, 0, Math.PI * 2);
-    ctx.fillStyle = s ? (s.card.aspect ? KIND_COL[s.card.aspect] : '#3a2e5e') : 'rgba(20,18,30,0.9)';
+    ctx.arc(cx, cy, 140, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 104, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
     ctx.fill();
-    if (s?.lit) {
-      ctx.save();
-      ctx.shadowColor = '#ffe9a8';
-      ctx.shadowBlur = 16;
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = '#ffe9a8';
-      ctx.stroke();
-      ctx.restore();
-    } else {
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = s ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 14;
+    ctx.stroke();
+    ctx.lineWidth = 8;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * 64, cy + dy * 64);
+      ctx.lineTo(cx + dx * 150, cy + dy * 150);
       ctx.stroke();
     }
-    if (s) drawArcanaShape(ctx, x, y, 0.48, s.lit ? '#fff3cf' : '#cfc6ee');
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.font = font(14);
-    const [lx, ly] = circleNode(i, cx, cy, 108);
-    ctx.fillText(String(i + 1), lx, ly);
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 70, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#111111';
+    ctx.beginPath();
+    ctx.moveTo(-12, 50);
+    ctx.lineTo(-12, -24);
+    ctx.lineTo(0, -54);
+    ctx.lineTo(12, -24);
+    ctx.lineTo(12, 50);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-12, 30, 24, 5);
+    ctx.restore();
+  } else {
+    // 魔法陣: 黒い円・目の菱形・番号つきの5つの点
+    ctx.beginPath();
+    ctx.arc(cx, cy, 112, 0, Math.PI * 2);
+    ctx.fillStyle = '#111111';
+    ctx.fill();
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#111111';
+    ctx.lineWidth = 6;
+    for (let i = 0; i < 4; i++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.beginPath();
+      ctx.moveTo(-14, -60);
+      ctx.lineTo(0, -98);
+      ctx.lineTo(14, -60);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.moveTo(0, -88);
+    ctx.lineTo(96, 0);
+    ctx.lineTo(0, 88);
+    ctx.lineTo(-96, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -60);
+    ctx.lineTo(64, 0);
+    ctx.lineTo(0, 60);
+    ctx.lineTo(-64, 0);
+    ctx.closePath();
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.restore();
+    drawArcanaShape(ctx, cx, cy, 1.15, '#111111', '#ffffff');
+    for (let i = 0; i < RULES.stockMax; i++) {
+      const [x, y] = circleNode(i, cx, cy);
+      const st = p.stock[i];
+      if (st?.lit) {
+        ctx.save();
+        ctx.shadowColor = '#ffc94a';
+        ctx.shadowBlur = 22;
+        ctx.beginPath();
+        ctx.arc(x, y, 24, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffd86a';
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.beginPath();
+      ctx.arc(x, y, st ? 20 : 15, 0, Math.PI * 2);
+      ctx.fillStyle = st ? (st.card.aspect ? KIND_COL[st.card.aspect] : '#ffffff') : '#111111';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#111111';
+      ctx.stroke();
+      if (st) drawArcanaShape(ctx, x, y, 0.42, st.card.aspect ? '#ffffff' : '#111111', st.card.aspect ? KIND_COL[st.card.aspect] : '#ffffff');
+      const [lx, ly] = circleNode(i, cx, cy, NODE_R + 34);
+      ctx.fillStyle = '#c0262b';
+      ctx.font = font(22);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), lx, ly);
+    }
   }
-  const lit = p.stock.filter((s) => s.lit).length;
-  ctx.font = font(15);
-  ctx.fillStyle = active ? '#ffffff' : 'rgba(255,255,255,0.45)';
-  ctx.fillText(`${KEYS.p2.stock}：発動待ちに（コスト1）`, w / 2, h - 46);
-  ctx.font = font(13, 500);
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fillText(`${p.stock.length} / ${RULES.stockMax}　発動待ち ${lit}`, w / 2, h - 22);
+  // コスト（赤丸）と弾・アルカナの数（小丸）
+  const badge = (x, y, r, text, red) => {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = red ? '#ffffff' : '#111111';
+    ctx.fill();
+    ctx.lineWidth = red ? 5 : 4;
+    ctx.strokeStyle = red ? '#e02a24' : '#ffffff';
+    ctx.stroke();
+    ctx.fillStyle = red ? '#e02a24' : '#ffffff';
+    ctx.font = font(r * (String(text).length > 1 ? 1.05 : 1.3));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(text), x, y + 2);
+  };
+  badge(cx - 72, cy - 72, 34, p.cost, true);
+  const count = pid === 'p1' ? p.stock.length : p.stock.filter((st) => st.lit).length;
+  badge(cx + 76, cy + 76, 24, count, false);
+  // 操作のヒント（地面の帯の上）
+  const hint = pid === 'p1' ? `${KEYS.p1.stock}：撃つ（コスト1）` : `${KEYS.p2.stock}：発動待ちに（コスト1）`;
+  ctx.font = font(16);
+  ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(hint).width + 28;
+  rr(ctx, cx - tw / 2, h - 34, tw, 30, 15);
+  ctx.fillStyle = active ? '#111111' : 'rgba(17,17,17,0.45)';
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(hint, cx, h - 18);
 }
 
 // 魔法陣の i 番目の位置（1 が真上、時計回り）
-function circleNode(i, cx, cy, r = 80) {
+function circleNode(i, cx, cy, r = NODE_R) {
   const a = -Math.PI / 2 + (i * Math.PI * 2) / RULES.stockMax;
   return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
 }
 
+// 中央の3つの菱形（画面案の飾り）
+function drawDiamonds(ctx, w, h) {
+  for (const y of [h / 2 - 59, h / 2, h / 2 + 59]) {
+    ctx.save();
+    ctx.translate(w / 2, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-17, -17, 34, 34);
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(-9, -9, 18, 18);
+    ctx.restore();
+  }
+}
+
 function drawLog(ctx, w, h, lines) {
-  rr(ctx, 0, 0, w, h, 14);
-  ctx.fillStyle = 'rgba(12, 20, 24, 0.55)';
+  rr(ctx, 0, 0, w, h, 12);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
   ctx.fill();
-  ctx.font = font(13);
-  ctx.fillStyle = 'rgba(180, 220, 228, 0.8)';
+  ctx.font = font(12);
+  ctx.fillStyle = 'rgba(30, 30, 30, 0.55)';
   ctx.textBaseline = 'middle';
-  ctx.fillText('BATTLE LOG', 16, 18);
-  ctx.font = font(15, 500);
-  lines.slice(-7).forEach((line, i, arr) => {
-    ctx.fillStyle = `rgba(255,255,255,${0.45 + (0.55 * (i + 1)) / arr.length})`;
-    ctx.fillText(line, 16, 44 + i * 21);
+  ctx.textAlign = 'left';
+  ctx.fillText('BATTLE LOG', 14, 14);
+  ctx.font = font(14, 500);
+  lines.slice(-4).forEach((line, i, arr) => {
+    ctx.fillStyle = `rgba(20,20,20,${0.4 + (0.6 * (i + 1)) / arr.length})`;
+    ctx.fillText(line, 14, 36 + i * 19);
   });
 }
 
@@ -1735,7 +1752,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 360);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('2人協力・行動値制カードバトル　戦闘モック v0.3', w / 2, 428);
+  ctx.fillText('2人協力・行動値制カードバトル　戦闘モック v0.4', w / 2, 428);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('1台のキーボードを2人で使います', w / 2, 474);
@@ -1924,50 +1941,28 @@ export class View {
     const bg = canvasPlane(W, H, drawBackground, { scale: 1, layer: L.bg });
     at(bg.mesh, W / 2, H / 2);
     this.scene.add(bg.mesh);
-    this.buildMotes();
     this.buildHeader();
     this.buildEnemy();
     this.buildCharacters();
     this.buildPanels();
     this.buildHands();
     this.buildCombo();
-    this.buildStocks();
     this.buildParry();
     this.buildOverlays();
   }
 
-  buildMotes() {
-    const n = 48;
-    const r = rng(7);
-    const pos = new Float32Array(n * 3);
-    this.moteSeeds = [];
-    for (let i = 0; i < n; i++) this.moteSeeds.push({ x: r() * W, y: 150 + r() * 750, sp: 8 + r() * 18, ph: r() * 6.28 });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const mat = new THREE.PointsMaterial({
-      size: 10, map: glowTexture('255,248,215'), transparent: true, opacity: 0.6,
-      depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: false,
-    });
-    this.motes = new THREE.Points(geo, mat);
-    this.motes.renderOrder = L.motes;
-    this.scene.add(this.motes);
-  }
-
   buildHeader() {
-    const header = canvasPlane(W, 112, (ctx, w) => drawHeader(ctx, w), { layer: L.header });
-    at(header.mesh, W / 2, 56);
-    this.scene.add(header.mesh);
-    this.turnBadge = canvasPlane(240, 120, (ctx, w, h) => drawTurnBadge(ctx, w, h, 0), { layer: L.header + 3 });
-    at(this.turnBadge.mesh, W / 2, 60);
-    this.scene.add(this.turnBadge.mesh);
-    this.gear = canvasPlane(92, 92, drawGear, { layer: L.header + 3 });
-    at(this.gear.mesh, 1860, 56);
+    this.roundPlane = canvasPlane(300, 80, null, { layer: L.header + 3 });
+    at(this.roundPlane.mesh, 160, 52);
+    this.scene.add(this.roundPlane.mesh);
+    this.gear = canvasPlane(124, 124, drawGear, { layer: L.header + 3 });
+    at(this.gear.mesh, GEAR.x, GEAR.top);
     this.scene.add(this.gear.mesh);
-    this.phasePill = canvasPlane(560, 54, null, { layer: L.header + 2 });
-    at(this.phasePill.mesh, 830, 302);
+    this.phasePill = canvasPlane(560, 42, null, { layer: L.header + 2 });
+    at(this.phasePill.mesh, 790, 168);
     this.scene.add(this.phasePill.mesh);
-    this.logPlane = canvasPlane(420, 200, (ctx, w, h) => drawLog(ctx, w, h, []), { layer: L.log });
-    at(this.logPlane.mesh, 230, 196);
+    this.logPlane = canvasPlane(360, 112, (ctx, w, h) => drawLog(ctx, w, h, []), { layer: L.log });
+    at(this.logPlane.mesh, 460, 268);
     this.scene.add(this.logPlane.mesh);
   }
 
@@ -1975,9 +1970,9 @@ export class View {
     // 敵カードは表向きで並べる（HP が変わるので1枚ずつ描く）
     this.enemySlots = [];
     for (let i = 0; i < 5; i++) {
-      const plane = canvasPlane(112, 156, null, { layer: L.enemyCards, scale: Math.max(RES, 1.5) * 1.5 });
+      const plane = canvasPlane(ESLOT.w, ESLOT.h, null, { layer: L.enemyCards, scale: Math.max(RES, 1.5) * 1.5 });
       const m = plane.mesh;
-      at(m, W / 2 + (i - 2) * 148, 196);
+      at(m, ESLOT.xs[i], ESLOT.top);
       m.userData.home = m.position.clone();
       m.userData.plane = plane;
       this.scene.add(m);
@@ -1990,6 +1985,8 @@ export class View {
     // 灯火の翼竜（胴・翼・ランタンを別パーツにして動かす）
     this.enemyRig = at(new THREE.Group(), POS.enemy.x, POS.enemy.top);
     this.enemyBob = new THREE.Group();
+    // 画面案の竜の大きさに合わせて少し縮める
+    this.enemyBob.scale.set(0.85, 0.85, 1);
     this.enemyRig.add(this.enemyBob);
     this.enemyMats = [];
     const wing = (shade, layer, mirror) => {
@@ -2017,14 +2014,18 @@ export class View {
     this.lantern.add(lamp.mesh, this.glow);
     this.enemyBob.add(this.wingL, body.mesh, this.wingR, this.lantern);
     const shadow = canvasPlane(360, 70, drawShadow, { layer: L.enemy - 2 });
-    shadow.mesh.position.set(10, -300, 0);
+    shadow.mesh.position.set(10, -(GROUND.top - POS.enemy.top), 0);
     this.enemyMats.push(shadow.mesh.material);
     this.enemyFade = { v: 1 };
     this.enemyRig.add(shadow.mesh);
     this.scene.add(this.enemyRig);
-    this.enemyPanel = canvasPlane(420, 110, null, { layer: L.charUi });
-    at(this.enemyPanel.mesh, POS.enemy.x, 352);
-    this.scene.add(this.enemyPanel.mesh);
+    this.enemyHp = canvasPlane(400, 42, null, { layer: L.charUi });
+    at(this.enemyHp.mesh, POS.enemy.x, 265);
+    this.actionPlane = canvasPlane(320, 100, null, { layer: L.charUi });
+    at(this.actionPlane.mesh, POS.enemy.x, 195);
+    this.enemyName = canvasPlane(460, 80, null, { layer: L.charUi });
+    at(this.enemyName.mesh, POS.enemy.x, 642);
+    this.scene.add(this.enemyHp.mesh, this.actionPlane.mesh, this.enemyName.mesh);
   }
 
   buildCharacters() {
@@ -2040,26 +2041,43 @@ export class View {
       sprite.mesh.position.y = 170;
       bob.add(sprite.mesh);
       this.scene.add(root);
-      const panel = canvasPlane(260, 72, null, { layer: L.charUi });
-      at(panel.mesh, x, feet - 372);
+      const panel = canvasPlane(250, 70, null, { layer: L.charUi });
+      at(panel.mesh, x, feet - 374);
       this.scene.add(panel.mesh);
       this.chars[pid] = { root, bob, sprite, panel, home: root.position.clone() };
     }
   }
 
+  // 弾倉・紋章・ボタン・操作のヒント
   buildPanels() {
-    this.panels = {};
+    this.stocks = {};
     this.trash = {};
+    this.hints = {};
+    this.decks = {};
+    this.magazine = canvasPlane(MAG.w, MAG.h, null, { layer: L.stock });
+    at(this.magazine.mesh, MAG.x, MAG.top);
+    this.scene.add(this.magazine.mesh);
     for (const pid of PIDS) {
-      const panel = canvasPlane(470, 250, null, { layer: L.panels });
-      at(panel.mesh, pid === 'p1' ? 235 : W - 235, H - 125);
-      this.scene.add(panel.mesh);
-      this.panels[pid] = panel;
-      const trash = canvasPlane(110, 120, (ctx, w, h) => drawTrash(ctx, w, h, pid), { layer: L.panels });
-      at(trash.mesh, pid === 'p1' ? 70 : W - 70, 755);
-      this.scene.add(trash.mesh);
-      this.trash[pid] = trash;
+      const em = canvasPlane(EMBLEM_SIZE, EMBLEM_SIZE + 40, null, { layer: L.stock });
+      at(em.mesh, EMBLEM[pid].x, EMBLEM[pid].top + 20);
+      this.scene.add(em.mesh);
+      this.stocks[pid] = em;
+      const k = KEYS[pid];
+      const re = canvasPlane(100, 100, (ctx, w, h) => drawButton(ctx, w, h, 'reroll', `${k.reroll} 引き直し`), { layer: L.panels });
+      at(re.mesh, BTN[pid].x, BTN.reroll);
+      const dk = canvasPlane(100, 100, null, { layer: L.panels });
+      at(dk.mesh, BTN[pid].x, BTN.deck);
+      this.scene.add(re.mesh, dk.mesh);
+      this.trash[pid] = re;
+      this.decks[pid] = dk;
+      const hint = canvasPlane(640, 40, (ctx, w, h) => drawHint(ctx, w, h, pid), { layer: L.panels });
+      at(hint.mesh, HAND_X[pid][1], 742);
+      this.scene.add(hint.mesh);
+      this.hints[pid] = hint;
     }
+    const dia = canvasPlane(60, 180, drawDiamonds, { layer: L.panels });
+    at(dia.mesh, 957, 973);
+    this.scene.add(dia.mesh);
   }
 
   buildHands() {
@@ -2078,19 +2096,9 @@ export class View {
   }
 
   buildCombo() {
-    this.comboPlane = canvasPlane(640, 36, null, { layer: L.field });
-    at(this.comboPlane.mesh, 830, 352);
+    this.comboPlane = canvasPlane(640, 34, null, { layer: L.field });
+    at(this.comboPlane.mesh, 790, 210);
     this.scene.add(this.comboPlane.mesh);
-  }
-
-  buildStocks() {
-    this.stocks = {};
-    for (const pid of PIDS) {
-      const plane = canvasPlane(STOCK_W, STOCK_H, null, { layer: L.stock });
-      at(plane.mesh, STOCK_POS[pid].x, STOCK_POS[pid].top);
-      this.scene.add(plane.mesh);
-      this.stocks[pid] = plane;
-    }
   }
 
   buildParry() {
@@ -2141,14 +2149,6 @@ export class View {
     const t = this.time / 1000;
     this.updateTweens(dt);
 
-    const pos = this.motes.geometry.attributes.position;
-    this.moteSeeds.forEach((m, i) => {
-      m.y += (m.sp * dt) / 1000;
-      if (m.y > 900) m.y = 150;
-      pos.setXYZ(i, m.x + Math.sin(t * 0.6 + m.ph) * 26, m.y, 0);
-    });
-    pos.needsUpdate = true;
-
     for (const pid of PIDS) {
       const c = this.chars[pid];
       const ph = pid === 'p1' ? 0 : 1.9;
@@ -2171,8 +2171,8 @@ export class View {
         const sel = !!this.game && this.phase === 'player' && this.cursor[pid] === i && this.game.canAct(pid);
         s.lift += ((sel ? 1 : 0) - s.lift) * Math.min(1, dt * 0.016);
         s.group.position.x = s.home.x + s.shake.x;
-        s.group.position.y = s.home.y + s.lift * 40 + s.slide.y;
-        const sc = 1 + s.lift * 0.14;
+        s.group.position.y = s.home.y + s.lift * 70 + s.slide.y;
+        const sc = 1 + s.lift * 0.08;
         s.group.scale.set(sc, sc, 1);
         s.glow.mesh.visible = sel;
         s.card.mesh.renderOrder = L.cards + (sel ? 3 : 0);
@@ -2239,12 +2239,12 @@ export class View {
     this.drawStocks();
     this.drawCombo();
     this.drawAction();
-    this.turnBadge.draw((ctx, w, h) => drawTurnBadge(ctx, w, h, this.game.round));
+    this.roundPlane.draw((ctx, w, h) => drawRound(ctx, w, h, this.game.round));
   }
 
   drawAction() {
-    this.phasePill.mesh.visible = this.phase !== 'title' && this.phase !== 'result' && this.phase !== 'intro';
-    this.phasePill.draw((ctx, w, h) => drawActionPill(ctx, w, h, this.game, this.phase));
+    this.phasePill.draw((ctx, w, h) => drawPhasePill(ctx, w, h, this.phase));
+    this.actionPlane.draw((ctx, w, h) => drawActionBar(ctx, w, h, this.game));
   }
 
   drawCombo() {
@@ -2255,8 +2255,10 @@ export class View {
   drawStocks() {
     const g = this.game;
     const active = this.phase === 'player';
-    this.stocks.p1.draw((ctx, w, h) => drawMagazine(ctx, w, h, g.players.p1, active && g.canAct('p1')));
-    this.stocks.p2.draw((ctx, w, h) => drawCircle(ctx, w, h, g.players.p2, active && g.canAct('p2')));
+    this.magazine.draw((ctx, w, h) => drawMagazine(ctx, w, h, g.players.p1));
+    for (const pid of PIDS) {
+      this.stocks[pid].draw((ctx, w, h) => drawEmblem(ctx, w, h, pid, g.players[pid], active && g.canAct(pid)));
+    }
   }
 
   drawEnemySlot(i) {
@@ -2292,8 +2294,11 @@ export class View {
     }
   }
 
+  // 山札の数（コストは紋章の赤丸に出す）
   drawPanel(pid) {
-    this.panels[pid].draw((ctx, w, h) => drawPanel(ctx, w, h, pid, this.game.players[pid], this.game, this.phase));
+    const p = this.game.players[pid];
+    this.decks[pid].draw((ctx, w, h) => drawButton(ctx, w, h, 'deck', `山札${p.deck.length}・捨て${p.discard.length}`));
+    this.stocks[pid].draw((ctx, w, h) => drawEmblem(ctx, w, h, pid, p, this.phase === 'player' && this.game.canAct(pid)));
   }
 
   drawCharPanel(pid) {
@@ -2302,7 +2307,8 @@ export class View {
   }
 
   drawEnemyPanel() {
-    this.enemyPanel.draw((ctx, w, h) => drawEnemyPanel(ctx, w, h, this.disp.enemy, this.game.enemy));
+    this.enemyHp.draw((ctx, w, h) => drawEnemyHp(ctx, w, h, this.disp.enemy, this.game.enemy));
+    this.enemyName.draw((ctx, w, h) => drawEnemyName(ctx, w, h, this.game.enemy));
   }
 
   addLog(text) {
@@ -2390,8 +2396,8 @@ export class View {
       case 'costGain': {
         this.drawPanel(e.pid);
         this.refreshHands();
-        const x = e.pid === 'p1' ? 58 : W - 412;
-        this.popText(x, H - 120, `+${e.amount}`, C.mana, 34);
+        const em = EMBLEM[e.pid];
+        this.popText(em.x - 72, em.top - 130, `+${e.amount}`, '#e02a24', 36);
         return;
       }
       case 'av':
@@ -2401,8 +2407,8 @@ export class View {
       case 'stock': {
         this.drawStocks();
         this.refreshHands();
-        const sp = STOCK_POS[e.pid];
-        this.ring(sp.x, sp.top - 20, e.ench ? ENCH_COL[e.ench] : e.attr ? KIND_COL[e.attr] : e.lit ? '#ffe9a8' : PLIGHT[e.pid]);
+        const sp = stockPoint(e.pid);
+        this.ring(sp.x, sp.top, e.ench ? ENCH_COL[e.ench] : e.attr ? KIND_COL[e.attr] : e.lit ? '#ffe9a8' : PLIGHT[e.pid]);
         if (e.ench) this.popText(sp.x, sp.top - 120, `次弾に${ENCHANT[e.ench].name}`, '#ffe48a', 30);
         if (e.attr) this.popText(sp.x, sp.top - 120, `${KIND_LABEL[e.attr]}属性`, '#ffe48a', 30);
         if (e.lit) this.popText(sp.x, sp.top - 120, '発動待ち', '#ffe9a8', 30);
@@ -2572,7 +2578,7 @@ export class View {
 
   // 弾丸: 弾倉（またはルスカー）から翼竜へ飛ばす
   async shotFx(e) {
-    const from = e.fromStock ? { x: STOCK_POS.p1.x + 60, top: STOCK_POS.p1.top - 120 } : this.targetPoint('p1');
+    const from = e.fromStock ? { x: MAG.x + 60, top: MAG.top - MAG.h / 2 + 22 } : this.targetPoint('p1');
     const to = this.targetPoint('enemy');
     const b = canvasPlane(70, 30, (ctx) => {
       ctx.save();
@@ -2591,8 +2597,8 @@ export class View {
 
   // アルカナ: 魔法陣の位置から、敵が使っているカードへ飛ばす
   async arcanaFx(e) {
-    const sp = STOCK_POS.p2;
-    const [nx, ny] = circleNode(e.index, sp.x, sp.top - STOCK_H / 2 + 166);
+    const em = EMBLEM.p2;
+    const [nx, ny] = circleNode(e.index, em.x, em.top);
     const a = canvasPlane(70, 70, (ctx) => drawArcanaShape(ctx, 35, 35, 1, '#fff3cf'), { layer: L.reveal + 2 });
     at(a.mesh, nx, ny);
     this.scene.add(a.mesh);
@@ -2638,11 +2644,8 @@ export class View {
 
   cardDest(pid, card) {
     if (card.type === 'attack' || card.type === 'bullet') return this.targetPoint('enemy');
-    if (card.type === 'load' || card.type === 'arcana') return { x: STOCK_POS[pid].x, top: STOCK_POS[pid].top - 60 };
-    if (card.type === 'enchant') {
-      const to = card.ench ? 'p1' : 'p2';
-      return { x: STOCK_POS[to].x, top: STOCK_POS[to].top - 60 };
-    }
+    if (card.type === 'load' || card.type === 'arcana') return stockPoint(pid);
+    if (card.type === 'enchant') return stockPoint(card.ench ? 'p1' : 'p2');
     return this.targetPoint(pid);
   }
 
@@ -2656,12 +2659,13 @@ export class View {
   }
 
   denyStock(pid, err) {
-    const m = this.stocks[pid].mesh;
-    const x = STOCK_POS[pid].x;
+    const m = (pid === 'p1' ? this.magazine : this.stocks.p2).mesh;
+    const x = m.position.x;
     (async () => {
       for (const k of [1, -1, 0.6, -0.4, 0]) await this.tween(m.position, { x: x + 8 * k }, 45, 'linear');
     })();
-    this.popText(x, STOCK_POS[pid].top - 220, DENY[err] ?? '使えない', '#ff8a8a', 28);
+    const sp = stockPoint(pid);
+    this.popText(sp.x, sp.top - 130, DENY[err] ?? '使えない', '#d23a3a', 28);
   }
 
   handRerolled(pid) {
@@ -2862,8 +2866,13 @@ export class View {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * W;
     const top = ((e.clientY - rect.top) / rect.height) * H;
-    if (Math.hypot(x - 1860, top - 56) < 46) this.toggleHelp();
+    if (Math.hypot(x - GEAR.x, top - GEAR.top) < 56) this.toggleHelp();
   }
+}
+
+// 弾倉・魔法陣に何かが入る（出る）ときの演出の位置
+function stockPoint(pid) {
+  return pid === 'p1' ? { x: MAG.x, top: MAG.top } : { x: EMBLEM.p2.x, top: EMBLEM.p2.top };
 }
 
 const DENY = {

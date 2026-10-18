@@ -62,7 +62,7 @@ function deckTiles(pid) {
     const card = playerCard(id);
     const notes = [];
     if (card.combo) notes.push('連携（金枠）');
-    return tile(canvasFor(160, 228, 200, (ctx, w, h) => drawCard(ctx, w, h, card, cardOpts)), n, notes.join('・'));
+    return tile(canvasFor(190, 300, 200, (ctx, w, h) => drawCard(ctx, w, h, card, cardOpts)), n, notes.join('・'));
   });
 }
 
@@ -80,8 +80,8 @@ root.append(
   section(`1P ${NAME.p1}の初期デッキ（${DECKS.p1.length}枚）`, '', deckTiles('p1')),
   section(`2P ${NAME.p2}の初期デッキ（${DECKS.p2.length}枚）`, '', deckTiles('p2')),
   section('戦闘中に生まれるカード', '再型・占星統治で生まれ、使うと捨て札を経てデッキに混ざる。弾丸は付いた加護、アルカナは付いた属性を引き継ぐ。', [
-    tile(canvasFor(160, 228, 200, (ctx, w, h) => drawCard(ctx, w, h, playerCard('bullet'), cardOpts)), 0, '再型で弾倉に装填'),
-    tile(canvasFor(160, 228, 200, (ctx, w, h) => drawCard(ctx, w, h, playerCard('arcana'), cardOpts)), 0, '占星統治で魔法陣に補填'),
+    tile(canvasFor(190, 300, 200, (ctx, w, h) => drawCard(ctx, w, h, playerCard('bullet'), cardOpts)), 0, '再型で弾倉に装填'),
+    tile(canvasFor(190, 300, 200, (ctx, w, h) => drawCard(ctx, w, h, playerCard('arcana'), cardOpts)), 0, '占星統治で魔法陣に補填'),
   ]),
   section(`敵：${ENEMY.name}のカード`, `${ENEMY.lineup.length}枚とも表向きに並び、壊れていないものからランダムに1枚使う。攻撃カードをすべて壊すと勝ち。`, enemyTiles()),
 );
