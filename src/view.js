@@ -1,8 +1,8 @@
 // three.js による描画と演出。状態は game.js が持ち、ここは「見せ方」だけを担う
 // 画像素材は一切使わず、すべて Canvas 2D で描いたテクスチャを板ポリに貼っている
 import * as THREE from 'three';
-import { RULES, TYPE_LABEL } from './data.js';
-import { PIDS, LABEL, capFor, describeEnemyCard, grade } from './game.js';
+import { RULES, TYPE_LABEL, KIND_LABEL, ENCHANT } from './data.js';
+import { PIDS, LABEL, NAME, describeEnemyCard, grade, bulletDamage } from './game.js';
 
 export const W = 1920;
 export const H = 1080;
@@ -18,21 +18,27 @@ const C = {
   p2: '#b8541f', p2Dark: '#6b2a0a', p2Light: '#ffa468',
   teal: '#177d94', tealDark: '#0b4756', tealLight: '#55b6cc',
   cream: '#f4eacf', ink: '#211c28', gold: '#ecbd42',
-  attack: '#c4473b', parry: '#3b76c6', buff: '#3d9c5c', debuff: '#7d4cc2',
+  attack: '#c4473b', parry: '#3b76c6', buff: '#3d9c5c', guard: '#4f7fa8', focus: '#1f8f9c',
+  bullet: '#b4532f', arcana: '#5a46b8', load: '#6b7a3a', enchant: '#c08a1e',
   mana: '#66e4f3', block: '#86b8ff', heal: '#8cea9f',
 };
+// 敵カードの種類・運命超過の属性の色
+const KIND_COL = { attack: '#9b2c34', guard: '#2c5f9b', special: '#4e2c78' };
+// 星霊の加護の色
+const ENCH_COL = { decay: '#8f5bd6', resist: '#3fa8c9', power: '#e0663a' };
 const PCOL = { p1: C.p1, p2: C.p2 };
 const PDARK = { p1: C.p1Dark, p2: C.p2Dark };
 const PLIGHT = { p1: C.p1Light, p2: C.p2Light };
-const ROLE = { p1: 'アタッカー', p2: 'バッファー' };
+const ROLE = { p1: '弾丸で本体を削る', p2: 'アルカナで札を壊す' };
 export const KEYS = {
-  p1: { move: 'A / D', use: 'SPACE', reroll: 'W', end: 'S' },
-  p2: { move: '← / →', use: 'ENTER', reroll: '↑', end: '↓' },
+  p1: { move: 'A / D', use: 'SPACE', reroll: 'W', stock: 'S' },
+  p2: { move: '← / →', use: 'ENTER', reroll: '↑', stock: '↓' },
 };
+const STOCK_ACT = { p1: '弾丸を撃つ', p2: 'アルカナ発動' };
 
 // 描画順（renderOrder）
 const L = {
-  bg: 0, motes: 1, header: 4, enemyCards: 6, enemy: 8, chars: 10, charUi: 12, field: 14, mini: 16, fx: 20,
+  bg: 0, motes: 1, header: 4, enemyCards: 6, enemy: 8, chars: 10, charUi: 12, field: 14, stock: 16, fx: 20,
   panels: 30, cards: 32, fly: 36, log: 38, reveal: 44, banner: 50, parry: 60, popup: 70,
   flash: 80, overlay: 90, help: 95,
 };
@@ -41,7 +47,7 @@ const L = {
 const POS = {
   p1: { x: 430, feet: 792 },
   p2: { x: 705, feet: 806 },
-  enemy: { x: 1455, top: 590 },
+  enemy: { x: 1330, top: 590 },
 };
 const HAND_X = { p1: [538, 704, 870], p2: [1050, 1216, 1382] };
 const CARD_W = 160;
@@ -49,19 +55,22 @@ const CARD_H = 228;
 const HAND_TOP = H - CARD_H / 2 - 10;
 const TRACK = { x0: 250, x1: 1670, top: 228 };
 const REVEAL = { x: 960, top: 500 };
-// 場（このターンに出したカードを並べる。2P のキャラと竜の間）。rows は各段の中心
-const FIELD = { x: 995, w: 290, top: 400, h: 320, tag: 36, rows: { p1: 470, p2: 650 } };
+// 弾倉（1P・左）と魔法陣（2P・右）
+const STOCK_POS = { p1: { x: 150, top: 500 }, p2: { x: 1795, top: 500 } };
+const STOCK_W = 230;
+const STOCK_H = 380;
 const MINI_W = 88;
 const MINI_H = 124;
 
 const HELP = [
-  ['目的', '灯火の翼竜を倒す。2人とも倒れたら負け。'],
-  ['ターンの流れ', '味方のターンは2人が同時に操作する（制限時間なし）。出したカードは場に並ぶだけで、まだ発動しない。2人とも「ターン終了」を押すと、2P→1P の順に出した順でまとめて発動し、そのあと敵のターン。'],
-  ['マナ', 'ターン開始時に上限まで全回復。カードを場に出した時点で減る。上限は 1P が 3→10（毎ターン+1）、2P が 10→3（毎ターン−1）。2Pの「魔力供給」で1Pの次のターンのマナを増やせる。'],
-  ['パリィ', 'パリィカードが発動すると「構え」になり、次の敵の通常攻撃でバーが出る。中央で止めるとカードの防御値が最大で、離れるほど減る（端では0）。ピンクの範囲なら成功効果も発動。「全員でパリィ」のカードを構えていると味方全員がバーに参加し、それぞれ自分の止めた位置で防御値を得る。'],
-  ['連携', '金枠のカード。同じターンに2人とも金枠を出すと連携が成立し、発動時に連携効果が上乗せされる（組み合わせは自由）。金枠にパリィが含まれるときは、次の敵の通常攻撃で2人ともパリィに成功すると発動（パリィカードを出していない人もバーに参加する）。'],
-  ['敵', '上に伏せた5枚から毎ターン1枚を使う。何が来るかは分からない。特殊行動はパリィできない。HPが半分を切ると激昂して2回行動。'],
-  ['引き直し・防御値', '引き直しはマナ1で手札3枚を入れ替える。防御値はHPより先に削られる盾で、使い切らなかった分は上限なく溜まっていく。'],
+  ['目的', '灯火の翼竜の HP を0にするか、上に並ぶ敵の攻撃カード（赤）をすべて破壊すれば勝ち。2人とも倒れたら負け。'],
+  ['行動値', 'ターンはなく、2人とも好きな順に操作できる（制限時間なし）。カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治は行動値を消費しない。'],
+  ['コスト', '初期値3で上限なし。カードを使うと、相方のコストが1回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。'],
+  ['弾丸（ルスカー）', '再型で弾倉に1発ずつ装填（最大5）。S で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。'],
+  ['アルカナ（ラティシア）', '占星統治で魔法陣に1つずつ補填（最大5）。↓ で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、次に敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵の行動のあと、魔法陣のアルカナはすべて捨て札に行く。'],
+  ['パリィ', 'パリィカードを使うと「構え」になり、次の敵の攻撃カードでバーが出る。中央で止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。「全員でパリィ」のカードを構えていると2人ともバーに参加する。'],
+  ['連携', '金枠のカード。敵が次に行動するまでに2人とも金枠を使うと連携効果が上乗せされる。金枠にパリィが含まれるときは、次の敵の攻撃で2人ともパリィに成功すると発動。'],
+  ['敵', 'HP が半分を切ると激昂し、行動値が3になる。防御値は HP より先に削られる盾で、使い切らなかった分は溜まっていく。'],
 ];
 
 // ------------------------------------------------------------------ 汎用
@@ -145,10 +154,6 @@ function texPlane(tex, w, h, layer, extra = {}) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
   mesh.renderOrder = layer;
   return mesh;
-}
-
-function canvasTexture(w, h, draw, scale = RES) {
-  return canvasPlane(w, h, draw, { scale }).mesh.material.map;
 }
 
 function glowTexture(rgb, size = 128) {
@@ -697,7 +702,7 @@ function drawIcon(ctx, type, cx, cy, s, color) {
     ctx.beginPath();
     ctx.arc(0, 28, 4.5, 0, Math.PI * 2);
     ctx.fill();
-  } else if (type === 'parry') {
+  } else if (type === 'parry' || type === 'guard') {
     ctx.beginPath();
     ctx.moveTo(0, -24);
     ctx.lineTo(20, -16);
@@ -722,18 +727,91 @@ function drawIcon(ctx, type, cx, cy, s, color) {
     ctx.translate(10, -3);
     arrow();
     ctx.restore();
-  } else {
-    ctx.rotate(Math.PI);
-    ctx.save();
-    ctx.translate(-11, 5);
-    ctx.scale(0.8, 0.8);
-    arrow();
-    ctx.restore();
-    ctx.save();
-    ctx.translate(10, -3);
-    arrow();
-    ctx.restore();
+  } else if (type.startsWith('bullet')) {
+    ctx.rotate(Math.PI / 4);
+    drawBulletShape(ctx, 0, 0, 1);
+  } else if (type.startsWith('arcana')) {
+    drawArcanaShape(ctx, 0, 0, 0.9, color);
+  } else if (type === 'enchant') {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const r = i % 2 ? 10 : 25;
+      ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    ctx.closePath();
+    ctx.fill();
+  } else if (type === 'focus') {
+    ctx.beginPath();
+    ctx.moveTo(0, -26);
+    ctx.quadraticCurveTo(22, 2, 16, 14);
+    ctx.arc(0, 12, 16, 0.1, Math.PI - 0.1);
+    ctx.quadraticCurveTo(-22, 2, 0, -26);
+    ctx.fill();
   }
+  // 装填カードは右下に「＋」
+  if (type.endsWith('+')) {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(20, 18, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.fillRect(13, 16, 14, 4);
+    ctx.fillRect(18, 11, 4, 14);
+  }
+  ctx.restore();
+}
+
+// 弾丸（先端が上）。cx, cy が中心
+function drawBulletShape(ctx, cx, cy, s, boons = []) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(s, s);
+  const g = ctx.createLinearGradient(-9, 0, 9, 0);
+  g.addColorStop(0, '#9a6a1e');
+  g.addColorStop(0.45, '#f1cf72');
+  g.addColorStop(1, '#8a5c16');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(-9, 26);
+  ctx.lineTo(-9, -6);
+  ctx.quadraticCurveTo(-9, -26, 0, -30);
+  ctx.quadraticCurveTo(9, -26, 9, -6);
+  ctx.lineTo(9, 26);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#5b3c10';
+  ctx.fillRect(-10, 18, 20, 4);
+  boons.slice(0, 3).forEach((b, i) => {
+    ctx.fillStyle = ENCH_COL[b];
+    ctx.fillRect(-9, 8 - i * 9, 18, 6);
+  });
+  ctx.restore();
+}
+
+// アルカナ（目の描かれた菱形）
+function drawArcanaShape(ctx, cx, cy, s, color = '#ffffff', eye = '#1d1530') {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(s, s);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -30);
+  ctx.lineTo(26, 0);
+  ctx.lineTo(0, 30);
+  ctx.lineTo(-26, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = eye;
+  ctx.beginPath();
+  ctx.moveTo(-16, 0);
+  ctx.quadraticCurveTo(0, -13, 16, 0);
+  ctx.quadraticCurveTo(0, 13, -16, 0);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(0, 0, 5, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -748,6 +826,21 @@ function drawChain(ctx, cx, cy, color) {
   rr(ctx, -2, -6, 17, 12, 6);
   ctx.stroke();
   ctx.restore();
+}
+
+const iconOf = (card) => (card.type === 'load' ? `${card.owner === 'p1' ? 'bullet' : 'arcana'}+` : card.type);
+
+// 弾丸・アルカナは付いた加護・属性を効果文に足す
+function cardText(card) {
+  if (card.type === 'bullet') {
+    const boons = card.boons.map((b) => ENCHANT[b].name);
+    return `敵に${bulletDamage(card)}ダメージ${boons.length ? `
+加護：${boons.join('・')}` : ''}
+（手札からも撃てる）`;
+  }
+  if (card.type === 'arcana' && card.aspect) return `${card.text}
+属性：${KIND_LABEL[card.aspect]}（合えば+${RULES.arcanaAttrBonus}）`;
+  return card.text;
 }
 
 function drawCard(ctx, w, h, card, o) {
@@ -784,7 +877,7 @@ function drawCard(ctx, w, h, card, o) {
     ctx.stroke();
   }
   ctx.restore();
-  drawIcon(ctx, card.type, w / 2, 79, 1, mix(typeCol, '#000000', 0.12));
+  drawIcon(ctx, iconOf(card), w / 2, 79, 1, mix(typeCol, '#000000', 0.12));
   if (card.combo) drawChain(ctx, w - 28, 92, '#9a6f08');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -796,12 +889,12 @@ function drawCard(ctx, w, h, card, o) {
   // コスト
   ctx.beginPath();
   ctx.arc(25, 25, 19, 0, Math.PI * 2);
-  ctx.fillStyle = o.affordable ? '#13222c' : '#4a1c1c';
+  ctx.fillStyle = o.costOk ? '#13222c' : '#4a1c1c';
   ctx.fill();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = o.affordable ? C.mana : '#ff8080';
+  ctx.strokeStyle = o.costOk ? C.mana : '#ff8080';
   ctx.stroke();
-  ctx.fillStyle = o.affordable ? C.mana : '#ffa0a0';
+  ctx.fillStyle = o.costOk ? C.mana : '#ffa0a0';
   ctx.font = font(22);
   ctx.fillText(String(card.cost), 25, 26);
   // 種別
@@ -819,7 +912,7 @@ function drawCard(ctx, w, h, card, o) {
   ctx.font = font(13, 500);
   ctx.fillStyle = C.ink;
   let y = 142;
-  for (const line of wrapLines(ctx, card.text, w - 26)) {
+  for (const line of wrapLines(ctx, cardText(card), w - 26)) {
     ctx.fillText(line, 13, y);
     y += 17;
   }
@@ -868,7 +961,7 @@ function drawMiniCard(ctx, w, h, card) {
   ctx.font = font(fs);
   while (ctx.measureText(card.name).width > w - 14 && fs > 10) ctx.font = font(--fs);
   ctx.fillText(card.name, w / 2, 21);
-  drawIcon(ctx, card.type, w / 2, 60, 0.85, mix(typeCol, '#000000', 0.12));
+  drawIcon(ctx, iconOf(card), w / 2, 60, 0.85, mix(typeCol, '#000000', 0.12));
   if (card.combo) drawChain(ctx, w - 18, 76, '#9a6f08');
   const label = TYPE_LABEL[card.type] + (card.combo ? '・連携' : '');
   ctx.font = font(12);
@@ -887,36 +980,6 @@ function drawCardGlow(ctx, w, h, color) {
   rr(ctx, 25, 25, w - 50, h - 50, 16);
   ctx.fill();
   ctx.fill();
-}
-
-function drawCardBack(ctx, w, h) {
-  rr(ctx, 2, 2, w - 4, h - 4, 10);
-  ctx.fillStyle = '#5e4a2a';
-  ctx.fill();
-  rr(ctx, 7, 7, w - 14, h - 14, 7);
-  ctx.fillStyle = '#c4ad74';
-  ctx.fill();
-  rr(ctx, 13, 13, w - 26, h - 26, 5);
-  ctx.fillStyle = '#1f3442';
-  ctx.fill();
-  ctx.save();
-  ctx.clip();
-  ctx.strokeStyle = 'rgba(236, 189, 66, 0.16)';
-  ctx.lineWidth = 1.5;
-  for (let i = -h; i < w + h; i += 14) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i + h, h);
-    ctx.moveTo(i + h, 0);
-    ctx.lineTo(i, h);
-    ctx.stroke();
-  }
-  ctx.restore();
-  drawBird(ctx, w / 2 + 3, h / 2 + 8, 1.0, '#e9d9a6');
-  ctx.strokeStyle = 'rgba(236, 189, 66, 0.75)';
-  ctx.lineWidth = 2;
-  rr(ctx, 19, 19, w - 38, h - 38, 4);
-  ctx.stroke();
 }
 
 function drawEnemyIcon(ctx, card, cx, cy) {
@@ -942,21 +1005,6 @@ function drawEnemyIcon(ctx, card, cx, cy) {
     ctx.beginPath();
     ctx.arc(0, 30, 44, Math.PI * 1.2, Math.PI * 1.8);
     ctx.stroke();
-  } else if (card.id === 'flame') {
-    ctx.fillStyle = '#9fe2ff';
-    ctx.beginPath();
-    ctx.moveTo(0, -48);
-    ctx.quadraticCurveTo(40, 0, 18, 40);
-    ctx.quadraticCurveTo(0, 52, -18, 40);
-    ctx.quadraticCurveTo(-40, 0, 0, -48);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(0, -10);
-    ctx.quadraticCurveTo(16, 14, 8, 32);
-    ctx.quadraticCurveTo(0, 38, -8, 32);
-    ctx.quadraticCurveTo(-16, 14, 0, -10);
-    ctx.fill();
   } else if (card.id === 'wing') {
     ctx.translate(-64, -48);
     ctx.scale(0.4, 0.45);
@@ -975,14 +1023,15 @@ function drawEnemyIcon(ctx, card, cx, cy) {
   ctx.restore();
 }
 
+const KIND_TAG = { attack: '攻撃・パリィ可', guard: '防御', special: '特殊' };
+
 function drawEnemyCard(ctx, w, h, card, dmg) {
-  const normal = card.kind === 'normal';
-  const col = normal ? '#9b2c34' : '#4e2c78';
+  const col = KIND_COL[card.kind];
   rr(ctx, 3, 3, w - 6, h - 6, 18);
   ctx.fillStyle = '#1c1a20';
   ctx.fill();
   rr(ctx, 10, 10, w - 20, h - 20, 12);
-  ctx.fillStyle = col;
+  ctx.fillStyle = card.broken ? '#4a4a50' : col;
   ctx.fill();
   ctx.save();
   ctx.clip();
@@ -997,16 +1046,64 @@ function drawEnemyCard(ctx, w, h, card, dmg) {
   ctx.fill();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = normal ? '#ffd0d0' : '#e5d4ff';
+  ctx.fillStyle = '#f2e6ff';
   ctx.font = font(16);
-  ctx.fillText(normal ? '通常攻撃・パリィ可' : '特殊・パリィ不可', w / 2, 40);
-  drawEnemyIcon(ctx, card, w / 2, 130);
+  ctx.fillText(KIND_TAG[card.kind], w / 2, 40);
+  drawEnemyIcon(ctx, card, w / 2, 122);
   ctx.fillStyle = '#ffffff';
   ctx.font = font(36);
-  ctx.fillText(card.name, w / 2, 220);
-  ctx.font = font(20, 500);
+  ctx.fillText(card.name, w / 2, 196);
+  ctx.font = font(18, 500);
   ctx.fillStyle = '#f6eee0';
-  wrapLines(ctx, describeEnemyCard(card, dmg), w - 40).forEach((line, i) => ctx.fillText(line, w / 2, 264 + i * 27));
+  wrapLines(ctx, describeEnemyCard(card, dmg), w - 36).slice(0, 2).forEach((line, i) => ctx.fillText(line, w / 2, 232 + i * 24));
+  drawHpBar(ctx, 22, h - 46, w - 44, 28, card.hp, card.maxHp, '#e0a33a', 'カード');
+  if (card.broken) drawBroken(ctx, w, h, 1.6);
+}
+
+// 上に並ぶ敵カード（小）。表向きで、カードの HP も出す
+function drawEnemySlot(ctx, w, h, card) {
+  const col = card.broken ? '#3c3c42' : KIND_COL[card.kind];
+  rr(ctx, 2, 2, w - 4, h - 4, 10);
+  ctx.fillStyle = '#1c1a20';
+  ctx.fill();
+  rr(ctx, 6, 6, w - 12, h - 12, 7);
+  ctx.fillStyle = col;
+  ctx.fill();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = font(12);
+  ctx.fillText(KIND_LABEL[card.kind], w / 2, 19);
+  ctx.save();
+  ctx.translate(w / 2, 64);
+  ctx.scale(0.5, 0.5);
+  drawEnemyIcon(ctx, card, 0, 0);
+  ctx.restore();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(18);
+  ctx.fillText(card.name, w / 2, 106);
+  drawHpBar(ctx, 10, h - 34, w - 20, 22, card.hp, card.maxHp, '#e0a33a');
+  if (card.broken) drawBroken(ctx, w, h, 1);
+}
+
+function drawBroken(ctx, w, h, s) {
+  ctx.fillStyle = 'rgba(10, 10, 14, 0.55)';
+  rr(ctx, 2, 2, w - 4, h - 4, 10 * s);
+  ctx.fill();
+  ctx.strokeStyle = '#ff7b6b';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 7 * s;
+  const m = 26 * s;
+  ctx.beginPath();
+  ctx.moveTo(m, m + 10 * s);
+  ctx.lineTo(w - m, h - m - 20 * s);
+  ctx.moveTo(w - m, m + 10 * s);
+  ctx.lineTo(m, h - m - 20 * s);
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(20 * s);
+  ctx.textAlign = 'center';
+  ctx.fillText('破壊', w / 2, h / 2 - 5 * s);
 }
 
 // ------------------------------------------------------------------ 描画: UI
@@ -1052,7 +1149,7 @@ function drawTurnBadge(ctx, w, h, turn) {
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#e8fbff';
   ctx.font = font(18);
-  ctx.fillText('TURN', w / 2, 30);
+  ctx.fillText('ROUND', w / 2, 30);
   ctx.font = font(50);
   ctx.fillText(turn ? String(turn) : '-', w / 2, 74);
 }
@@ -1160,62 +1257,52 @@ function drawCharPanel(ctx, w, h, pid, d, p, game) {
   // 幅に収まらない分は落ちるので、重要なものから並べる
   if (d.hp <= 0) chips.push(['戦闘不能', '#555555']);
   if (game.comboParry && d.hp > 0) chips.push(['連携パリィ待ち', C.gold]);
+  else if (game.hasComboPlayed(pid)) chips.push(['連携待ち', C.gold]);
   if (p.armed.length) chips.push([p.armed.length > 1 ? `構え×${p.armed.length}` : '構え', C.parry]);
-  if (pid === 'p1' && p.nextMult !== 1) chips.push([`攻撃×${fmt(p.nextMult)}`, C.buff]);
-  if (pid === 'p1' && p.nextBonus) chips.push([`次の攻撃+${p.nextBonus}`, C.buff]);
-  if (p.manaNext) chips.push([`次マナ+${p.manaNext}`, '#1f7f8c']);
+  if (p.rapid) chips.push([p.rapid > 1 ? `速射×${p.rapid}` : '速射', C.bullet]);
+  if (p.nextBonus) chips.push([`次の攻撃+${p.nextBonus}`, C.buff]);
   drawChips(ctx, chips, 2, 46, w);
 }
 
-// 場: 段ごとにそのプレイヤーの色で枠を描き、間に連携の成立状況を出す（カード本体は別メッシュ）
-function drawField(ctx, w, h, st, phase) {
-  const tag = FIELD.tag;
-  for (const pid of PIDS) {
-    const y = FIELD.rows[pid] - FIELD.top - 70;
-    rr(ctx, 1, y + 1, w - 2, 138, 14);
-    ctx.fillStyle = 'rgba(12, 16, 24, 0.72)';
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = PLIGHT[pid];
-    ctx.stroke();
-    rr(ctx, 1, y + 1, tag, 138, [14, 0, 0, 14]);
-    ctx.fillStyle = PCOL[pid];
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
+// 行動値: 敵が動くまでの残り回数を丸で並べる
+function drawActionPill(ctx, w, h, game, phase) {
+  rr(ctx, 2, 2, w - 4, h - 4, (h - 4) / 2);
+  const enemy = phase === 'enemy' || phase === 'parry';
+  ctx.fillStyle = enemy ? 'rgba(110, 24, 30, 0.86)' : 'rgba(10, 30, 36, 0.78)';
+  ctx.fill();
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  if (enemy) {
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = font(16);
-    ctx.fillText(LABEL[pid], tag / 2 + 1, y + 58);
-    ctx.font = font(13);
-    ctx.fillText('場', tag / 2 + 1, y + 82);
-    if (phase === 'player' && st.empty[pid]) {
-      ctx.font = font(14, 500);
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.fillText('出したカードがここに並ぶ', tag + (w - tag) / 2, y + 70);
-    }
+    ctx.font = font(24);
+    ctx.fillText(phase === 'parry' ? 'パリィ！' : '敵の行動', w / 2, h / 2 + 1);
+    return;
   }
-  const has = PIDS.filter((pid) => st.combo[pid]);
-  if (!has.length) return;
-  let text;
-  if (has.length === 2) text = st.comboParry ? '連携成立（パリィ2人成功で発動）' : '連携成立！ ターン終了で発動';
-  else text = `連携待ち：${LABEL[PIDS.find((pid) => !st.combo[pid])]}も金枠を出すと成立`;
-  ctx.save();
-  ctx.translate(0, FIELD.rows.p1 - FIELD.top + 76);
-  drawPill(ctx, w, 32, text, {
-    bg: has.length === 2 ? C.gold : 'rgba(40, 32, 10, 0.88)', color: has.length === 2 ? '#3a2a00' : C.gold, size: 15,
-  });
-  ctx.restore();
+  ctx.textAlign = 'left';
+  ctx.font = font(20);
+  ctx.fillText('敵の行動まで', 26, h / 2 + 1);
+  const n = game.avMax;
+  const x0 = 170;
+  for (let i = 0; i < n; i++) {
+    ctx.beginPath();
+    ctx.arc(x0 + i * 30, h / 2, 10, 0, Math.PI * 2);
+    ctx.fillStyle = i < game.av ? '#ff8f7a' : 'rgba(255,255,255,0.16)';
+    ctx.fill();
+  }
+  ctx.font = font(30);
+  ctx.fillStyle = game.av <= 1 ? '#ff8f7a' : '#ffffff';
+  ctx.fillText(`あと ${game.av}`, x0 + n * 30 + 6, h / 2 + 2);
 }
 
-function fieldState(game) {
-  const st = { empty: {}, combo: {}, comboParry: false };
-  for (const pid of PIDS) {
-    const q = game.players[pid].queued;
-    st.empty[pid] = !q.length;
-    st.combo[pid] = q.some((c) => c.combo);
-    if (q.some((c) => c.combo && c.type === 'parry')) st.comboParry = true;
+// 連携の成立状況（金枠を使った人がいるときだけ）
+function drawComboPill(ctx, w, h, game) {
+  const has = PIDS.filter((pid) => game.hasComboPlayed(pid));
+  if (game.comboParry) {
+    drawPill(ctx, w, h, '連携成立：次の敵の攻撃で2人ともパリィ成功で発動', { bg: C.gold, color: '#3a2a00', size: 17 });
+  } else if (has.length === 1) {
+    const other = PIDS.find((pid) => pid !== has[0]);
+    drawPill(ctx, w, h, `連携待ち：敵が動く前に${NAME[other]}も金枠を使うと成立`, { bg: 'rgba(40, 32, 10, 0.88)', color: C.gold, size: 17 });
   }
-  return st;
 }
 
 function drawEnemyPanel(ctx, w, h, d, e) {
@@ -1233,8 +1320,8 @@ function drawEnemyPanel(ctx, w, h, d, e) {
   const chips = [];
   if (e.frenzy) chips.push(['激昂', '#c4473b']);
   if (e.strength) chips.push([`咆哮 攻撃+${e.strength}`, '#9b2c34']);
-  if (e.weak) chips.push([`弱体 -${e.weak.amount}（${e.weak.turns}）`, C.debuff]);
-  if (e.vuln) chips.push([`脆弱 +${e.vuln.amount}（${e.vuln.turns}）`, C.debuff]);
+  if (e.decay) chips.push([`崩壊×${e.decay}`, ENCH_COL.decay]);
+  if (e.resist) chips.push([`抵抗×${e.resist}`, ENCH_COL.resist]);
   drawChips(ctx, chips, 40, 82, w);
 }
 
@@ -1269,28 +1356,13 @@ function drawPanel(ctx, w, h, pid, p, game, phase) {
   ctx.textAlign = 'left';
   ctx.fillStyle = '#ffffff';
   ctx.font = font(30);
-  ctx.fillText(LABEL[pid], x0, 47);
-  ctx.font = font(20);
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  ctx.fillText(ROLE[pid], x0 + 50, 49);
-  // 準備状態
-  let st;
-  let stCol;
-  if (p.hp <= 0) [st, stCol] = ['戦闘不能', '#555555'];
-  else if (phase !== 'player') [st, stCol] = ['待機中', 'rgba(0,0,0,0.3)'];
-  else if (p.ready) [st, stCol] = ['✓ 準備完了', '#2f9e5a'];
-  else [st, stCol] = [`${KEYS[pid].end}：ターン終了`, 'rgba(0,0,0,0.35)'];
+  ctx.fillText(NAME[pid], x0, 47);
+  const nameW = ctx.measureText(NAME[pid]).width;
   ctx.font = font(17);
-  const sw = ctx.measureText(st).width + 26;
-  const sx = x0 + 340 - sw;
-  rr(ctx, sx, 31, sw, 34, 17);
-  ctx.fillStyle = stCol;
-  ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(st, sx + 13, 49);
-  // マナ
-  const { cap, mana } = p;
-  const next = game.nextCap(pid);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillText(`${LABEL[pid]}・${ROLE[pid]}`, x0 + nameW + 14, 49);
+  // コスト（上限なし）
+  const { cost } = p;
   ctx.beginPath();
   ctx.arc(x0 + 34, 140, 34, 0, Math.PI * 2);
   ctx.fillStyle = '#0e0f12';
@@ -1298,58 +1370,41 @@ function drawPanel(ctx, w, h, pid, p, game, phase) {
   ctx.lineWidth = 3;
   ctx.strokeStyle = C.mana;
   ctx.stroke();
-  ctx.fillStyle = mana > cap ? C.gold : '#ffffff';
-  ctx.font = font(38);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(cost >= 100 ? 28 : 38);
   ctx.textAlign = 'center';
-  ctx.fillText(String(mana), x0 + 34, 143);
+  ctx.fillText(String(cost), x0 + 34, 143);
   ctx.textAlign = 'left';
   ctx.font = font(16);
   ctx.fillStyle = C.mana;
-  ctx.fillText('MANA', x0 + 84, 104);
-  const arrow = next > cap ? ' ▲' : next < cap ? ' ▼' : '';
-  ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  ctx.font = font(16, 500);
-  ctx.fillText(`上限 ${cap}　次ターン ${next}${arrow}${p.manaNext ? `＋${p.manaNext}` : ''}`, x0 + 148, 104);
-  const slots = Math.max(10, mana);
-  for (let i = 0; i < slots; i++) {
+  ctx.fillText('COST', x0 + 84, 104);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.font = font(14, 500);
+  ctx.fillText('上限なし', x0 + 134, 104);
+  // 10個を超えた分は数字で足す
+  for (let i = 0; i < 10; i++) {
     const x = x0 + 84 + i * 26;
-    const y = 122;
-    rr(ctx, x, y, 22, 36, 6);
-    if (i < mana) {
-      ctx.fillStyle = i < cap ? C.mana : C.gold;
-      ctx.fill();
-    } else if (i < cap) {
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(102,228,243,0.6)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fill();
-    }
-    if (next > cap && i === cap) {
-      ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = '#b8ffcf';
-      ctx.lineWidth = 2;
-      rr(ctx, x, y, 22, 36, 6);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    if (next < cap && i === cap - 1) {
-      ctx.fillStyle = '#ff8080';
-      ctx.beginPath();
-      ctx.moveTo(x + 4, y - 9);
-      ctx.lineTo(x + 18, y - 9);
-      ctx.lineTo(x + 11, y - 2);
-      ctx.closePath();
-      ctx.fill();
-    }
+    rr(ctx, x, 122, 22, 36, 6);
+    ctx.fillStyle = i < cost ? C.mana : 'rgba(0,0,0,0.4)';
+    ctx.fill();
+  }
+  if (cost > 10) {
+    ctx.fillStyle = C.gold;
+    ctx.font = font(18);
+    ctx.fillText(`+${cost - 10}`, x0 + 84 + 10 * 26 + 2, 141);
+  }
+  if (p.hp <= 0) {
+    ctx.font = font(17);
+    rr(ctx, x0 + 84, 166, 100, 30, 15);
+    ctx.fillStyle = '#555555';
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('戦闘不能', x0 + 99, 182);
   }
   ctx.font = font(15, 500);
   ctx.fillStyle = 'rgba(255,255,255,0.82)';
   const k = KEYS[pid];
-  ctx.fillText(`${k.move} 選択　${k.use} 出す　${k.reroll} 引き直し　${k.end} 終了`, x0, 214);
+  ctx.fillText(`${k.move} 選択　${k.use} 使う　${k.stock} ${STOCK_ACT[pid]}　${k.reroll} 引き直し`, x0, 214);
 }
 
 function drawTrash(ctx, w, h, pid) {
@@ -1368,21 +1423,132 @@ function drawTrash(ctx, w, h, pid) {
   ctx.fillRect(49, 33, 12, 5);
   ctx.fillStyle = PCOL[pid];
   for (const x of [46.5, 53.5, 60.5]) ctx.fillRect(x, 50, 3, 21);
-  ctx.beginPath();
-  ctx.arc(91, 20, 15, 0, Math.PI * 2);
-  ctx.fillStyle = '#0e0f12';
-  ctx.fill();
-  ctx.strokeStyle = C.mana;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.fillStyle = C.mana;
-  ctx.font = font(16);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(RULES.rerollCost), 91, 21);
   ctx.fillStyle = '#ffffff';
   ctx.font = font(14);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   ctx.fillText(`${KEYS[pid].reroll} 引き直し`, 55, 108);
+}
+
+// 弾倉: 上ほど次に撃つ弾。付いた加護は弾の帯の色で出す
+function drawMagazine(ctx, w, h, p, active) {
+  rr(ctx, 4, 4, w - 8, h - 8, 18);
+  ctx.fillStyle = 'rgba(14, 12, 22, 0.72)';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = PLIGHT.p1;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(18);
+  ctx.fillText('弾倉', w / 2, 26);
+  const n = RULES.stockMax;
+  for (let i = 0; i < n; i++) {
+    // 上の段ほど後から装填した弾（＝次に撃つ弾）
+    const idx = n - 1 - i;
+    const y = 50 + i * 50;
+    const s = p.stock[idx];
+    rr(ctx, 18, y, w - 36, 42, 10);
+    ctx.fillStyle = s ? 'rgba(255, 236, 190, 0.12)' : 'rgba(255,255,255,0.04)';
+    ctx.fill();
+    if (!s) {
+      ctx.setLineDash([5, 5]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.stroke();
+      ctx.setLineDash([]);
+      continue;
+    }
+    const top = idx === p.stock.length - 1;
+    if (top) {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = C.gold;
+      ctx.stroke();
+    }
+    ctx.save();
+    ctx.translate(46, y + 21);
+    ctx.rotate(Math.PI / 2);
+    drawBulletShape(ctx, 0, 0, 0.62, s.card.boons);
+    ctx.restore();
+    ctx.textAlign = 'left';
+    ctx.font = font(18);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(String(bulletDamage(s.card)), 80, y + 22);
+    const names = s.card.boons.map((b) => ENCHANT[b].name).join('・');
+    ctx.font = font(12);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillText(names || (top ? '次弾' : ''), 108, y + 22);
+  }
+  ctx.textAlign = 'center';
+  ctx.font = font(15);
+  ctx.fillStyle = active ? '#ffffff' : 'rgba(255,255,255,0.45)';
+  ctx.fillText(`${KEYS.p1.stock}：撃つ（コスト1）`, w / 2, h - 46);
+  ctx.font = font(13, 500);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText(`${p.stock.length} / ${n} 発`, w / 2, h - 22);
+}
+
+// 魔法陣: 1〜5の順に埋まり、発動待ちのものが光る。運命超過の属性は色で出す
+function drawCircle(ctx, w, h, p, active) {
+  rr(ctx, 4, 4, w - 8, h - 8, 18);
+  ctx.fillStyle = 'rgba(14, 12, 22, 0.72)';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = PLIGHT.p2;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(18);
+  ctx.fillText('魔法陣', w / 2, 26);
+  const cx = w / 2;
+  const cy = 166;
+  ctx.strokeStyle = 'rgba(255, 222, 170, 0.35)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 80, 0, Math.PI * 2);
+  ctx.stroke();
+  drawArcanaShape(ctx, cx, cy, 0.9, 'rgba(255,255,255,0.18)', 'rgba(14,12,22,0.9)');
+  for (let i = 0; i < RULES.stockMax; i++) {
+    const [x, y] = circleNode(i, cx, cy);
+    const s = p.stock[i];
+    ctx.beginPath();
+    ctx.arc(x, y, 24, 0, Math.PI * 2);
+    ctx.fillStyle = s ? (s.card.aspect ? KIND_COL[s.card.aspect] : '#3a2e5e') : 'rgba(20,18,30,0.9)';
+    ctx.fill();
+    if (s?.lit) {
+      ctx.save();
+      ctx.shadowColor = '#ffe9a8';
+      ctx.shadowBlur = 16;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#ffe9a8';
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = s ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)';
+      ctx.stroke();
+    }
+    if (s) drawArcanaShape(ctx, x, y, 0.48, s.lit ? '#fff3cf' : '#cfc6ee');
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.font = font(14);
+    const [lx, ly] = circleNode(i, cx, cy, 108);
+    ctx.fillText(String(i + 1), lx, ly);
+  }
+  const lit = p.stock.filter((s) => s.lit).length;
+  ctx.font = font(15);
+  ctx.fillStyle = active ? '#ffffff' : 'rgba(255,255,255,0.45)';
+  ctx.fillText(`${KEYS.p2.stock}：発動待ちに（コスト1）`, w / 2, h - 46);
+  ctx.font = font(13, 500);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText(`${p.stock.length} / ${RULES.stockMax}　発動待ち ${lit}`, w / 2, h - 22);
+}
+
+// 魔法陣の i 番目の位置（1 が真上、時計回り）
+function circleNode(i, cx, cy, r = 80) {
+  const a = -Math.PI / 2 + (i * Math.PI * 2) / RULES.stockMax;
+  return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
 }
 
 function drawLog(ctx, w, h, lines) {
@@ -1529,9 +1695,9 @@ function drawRoleBox(ctx, x, y, pid, ready) {
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
   ctx.font = font(32);
-  ctx.fillText(`${LABEL[pid]}  ${ROLE[pid]}`, x + 24, y + 33);
+  ctx.fillText(`${LABEL[pid]}  ${NAME[pid]}`, x + 24, y + 33);
   const k = KEYS[pid];
-  [[k.move, 'カード選択'], [k.use, 'カードを出す／パリィを止める'], [k.reroll, '手札を引き直す（マナ1）'], [k.end, 'ターン終了（2人そろうと発動）']]
+  [[k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.stock, pid === 'p1' ? '弾倉の弾丸を撃つ' : 'アルカナを発動待ちに'], [k.reroll, '手札を引き直す']]
     .forEach(([key, desc], i) => {
       const yy = y + 100 + i * 38;
       rr(ctx, x + 24, yy - 15, 100, 30, 8);
@@ -1547,7 +1713,7 @@ function drawRoleBox(ctx, x, y, pid, ready) {
     });
   ctx.font = font(18);
   ctx.fillStyle = PLIGHT[pid];
-  ctx.fillText(pid === 'p1' ? 'マナ上限 3 → 10（毎ターン+1）' : 'マナ上限 10 → 3（毎ターン−1）', x + 24, y + 266);
+  ctx.fillText(pid === 'p1' ? '弾丸で翼竜の HP を削る' : 'アルカナで翼竜のカードを壊す', x + 24, y + 266);
   ctx.textAlign = 'right';
   ctx.font = font(20);
   ctx.fillStyle = ready ? '#8ef0b0' : 'rgba(255,255,255,0.65)';
@@ -1565,7 +1731,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 360);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('2人協力・ターン制カードバトル　戦闘モック v0.2', w / 2, 428);
+  ctx.fillText('2人協力・行動値制カードバトル　戦闘モック v0.3', w / 2, 428);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('1台のキーボードを2人で使います', w / 2, 474);
@@ -1591,10 +1757,11 @@ function drawResult(ctx, w, h, info, ready) {
   ctx.fillText(win ? 'VICTORY' : 'DEFEAT', w / 2, 390);
   ctx.font = font(38);
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(win ? `TURN ${info.turn} で翼竜を撃破` : `TURN ${info.turn} で全滅`, w / 2, 520);
+  const how = info.winBy === 'cards' ? '攻撃カードをすべて破壊' : '翼竜を撃破';
+  ctx.fillText(win ? `ROUND ${info.round} で${how}` : `ROUND ${info.round} で全滅`, w / 2, 520);
   ctx.font = font(26, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText(`1P HP ${info.hp1}　／　2P HP ${info.hp2}`, w / 2, 580);
+  ctx.fillText(`${NAME.p1} HP ${info.hp1}　／　${NAME.p2} HP ${info.hp2}`, w / 2, 580);
   ctx.font = font(30);
   ctx.fillStyle = '#ffffff';
   ctx.fillText(`1P：SPACE ${ready.p1 ? '✓' : '　'}　　2P：ENTER ${ready.p2 ? '✓' : '　'}　　でもう一度`, w / 2, 720);
@@ -1611,18 +1778,18 @@ function drawHelp(ctx, w, h) {
   ctx.font = font(20, 500);
   ctx.fillStyle = '#8fa7ad';
   ctx.fillText('H／ESC／クリックで閉じる', 1420, 140);
-  let y = 210;
+  let y = 196;
   for (const [head, body] of HELP) {
     ctx.font = font(24);
     ctx.fillStyle = C.gold;
     ctx.fillText(head, 220, y);
-    ctx.font = font(22, 500);
+    ctx.font = font(19, 500);
     ctx.fillStyle = '#e8eef0';
     for (const line of wrapLines(ctx, body, 1180)) {
-      ctx.fillText(line, 480, y);
-      y += 32;
+      ctx.fillText(line, 530, y);
+      y += 27;
     }
-    y += 22;
+    y += 14;
   }
   y += 10;
   ctx.font = font(24);
@@ -1632,8 +1799,8 @@ function drawHelp(ctx, w, h) {
   ctx.fillStyle = '#e8eef0';
   for (const pid of PIDS) {
     const k = KEYS[pid];
-    ctx.fillText(`${LABEL[pid]}　${k.move}：カード選択　${k.use}：出す／パリィを止める　${k.reroll}：引き直し　${k.end}：ターン終了`, 480, y);
-    y += 34;
+    ctx.fillText(`${LABEL[pid]} ${NAME[pid]}　${k.move}：カード選択　${k.use}：使う／パリィを止める　${k.stock}：${STOCK_ACT[pid]}　${k.reroll}：引き直し`, 530, y);
+    y += 30;
   }
 }
 
@@ -1661,8 +1828,7 @@ export class View {
     this.parry = null;
     this.helpOpen = false;
     this.overlayState = null;
-    this.zone = { p1: [], p2: [] }; // 場に出したカードのメッシュ { card, mesh }
-    this.fieldSt = null;
+    this.reveal = null; // 敵が使っているカード { slot, card, dmg }
     window.addEventListener('resize', () => this.resize());
     this.resize();
   }
@@ -1760,7 +1926,8 @@ export class View {
     this.buildCharacters();
     this.buildPanels();
     this.buildHands();
-    this.buildField();
+    this.buildCombo();
+    this.buildStocks();
     this.buildParry();
     this.buildOverlays();
   }
@@ -1792,8 +1959,8 @@ export class View {
     this.gear = canvasPlane(92, 92, drawGear, { layer: L.header + 3 });
     at(this.gear.mesh, 1860, 56);
     this.scene.add(this.gear.mesh);
-    this.phasePill = canvasPlane(640, 44, null, { layer: L.header + 2 });
-    at(this.phasePill.mesh, W / 2, 302);
+    this.phasePill = canvasPlane(560, 54, null, { layer: L.header + 2 });
+    at(this.phasePill.mesh, 830, 302);
     this.scene.add(this.phasePill.mesh);
     this.logPlane = canvasPlane(420, 200, (ctx, w, h) => drawLog(ctx, w, h, []), { layer: L.log });
     at(this.logPlane.mesh, 230, 196);
@@ -1801,12 +1968,14 @@ export class View {
   }
 
   buildEnemy() {
-    const backTex = canvasTexture(112, 156, drawCardBack, Math.max(RES, 1.5) * 2);
+    // 敵カードは表向きで並べる（HP が変わるので1枚ずつ描く）
     this.enemySlots = [];
     for (let i = 0; i < 5; i++) {
-      const m = texPlane(backTex, 112, 156, L.enemyCards);
+      const plane = canvasPlane(112, 156, null, { layer: L.enemyCards, scale: Math.max(RES, 1.5) * 1.5 });
+      const m = plane.mesh;
       at(m, W / 2 + (i - 2) * 148, 196);
       m.userData.home = m.position.clone();
+      m.userData.plane = plane;
       this.scene.add(m);
       this.enemySlots.push(m);
     }
@@ -1904,11 +2073,20 @@ export class View {
     }
   }
 
-  buildField() {
-    this.field = canvasPlane(FIELD.w, FIELD.h, null, { layer: L.field });
-    at(this.field.mesh, FIELD.x, FIELD.top + FIELD.h / 2);
-    this.field.mesh.visible = false;
-    this.scene.add(this.field.mesh);
+  buildCombo() {
+    this.comboPlane = canvasPlane(640, 36, null, { layer: L.field });
+    at(this.comboPlane.mesh, 830, 352);
+    this.scene.add(this.comboPlane.mesh);
+  }
+
+  buildStocks() {
+    this.stocks = {};
+    for (const pid of PIDS) {
+      const plane = canvasPlane(STOCK_W, STOCK_H, null, { layer: L.stock });
+      at(plane.mesh, STOCK_POS[pid].x, STOCK_POS[pid].top);
+      this.scene.add(plane.mesh);
+      this.stocks[pid] = plane;
+    }
   }
 
   buildParry() {
@@ -2007,7 +2185,7 @@ export class View {
     this.game = game;
     this.cursor = cursor;
     this.logLines = [];
-    this.clearZone();
+    this.reveal = null;
     this.syncDisp();
     for (const pid of PIDS) {
       const c = this.chars[pid];
@@ -2022,12 +2200,14 @@ export class View {
     this.enemyFade.v = 1;
     at(this.enemyRig, POS.enemy.x, POS.enemy.top);
     this.enemyRig.scale.set(1, 1, 1);
-    for (const m of this.enemySlots) {
+    this.enemySlots.forEach((m, i) => {
       m.visible = true;
       m.material.opacity = 1;
       m.scale.set(1, 1, 1);
       m.position.copy(m.userData.home);
-    }
+      m.userData.busy = false;
+      this.drawEnemySlot(i);
+    });
     this.drawLogPlane();
     this.refresh();
   }
@@ -2043,7 +2223,6 @@ export class View {
 
   setPhase(phase) {
     this.phase = phase;
-    if (phase !== 'player' && phase !== 'resolve') this.clearZone();
     this.refresh();
   }
 
@@ -2053,38 +2232,55 @@ export class View {
     for (const pid of PIDS) this.drawPanel(pid);
     for (const pid of PIDS) this.drawCharPanel(pid);
     this.drawEnemyPanel();
-    this.drawField();
-    this.turnBadge.draw((ctx, w, h) => drawTurnBadge(ctx, w, h, this.game.turn));
-    const text = {
-      player: '味方のターン ― 2人とも［ターン終了］でカードが発動', resolve: 'カード発動', enemy: '敵のターン', parry: 'パリィ！',
-    }[this.phase] || '';
-    const calm = this.phase === 'player' || this.phase === 'resolve';
-    this.phasePill.draw((ctx, w, h) => drawPill(ctx, w, h, text, { bg: calm ? 'rgba(10, 30, 36, 0.72)' : 'rgba(110, 24, 30, 0.82)' }));
+    this.drawStocks();
+    this.drawCombo();
+    this.drawAction();
+    this.turnBadge.draw((ctx, w, h) => drawTurnBadge(ctx, w, h, this.game.round));
   }
 
-  // 発動中は場が順に空になっていくので、連携の表示はターン終了時点のものを残す
-  drawField() {
-    const show = this.phase === 'player' || this.phase === 'resolve';
-    this.field.mesh.visible = show;
-    if (!show) return;
-    if (this.phase === 'player' || !this.fieldSt) this.fieldSt = fieldState(this.game);
-    this.field.draw((ctx, w, h) => drawField(ctx, w, h, this.fieldSt, this.phase));
+  drawAction() {
+    this.phasePill.mesh.visible = this.phase !== 'title' && this.phase !== 'result' && this.phase !== 'intro';
+    this.phasePill.draw((ctx, w, h) => drawActionPill(ctx, w, h, this.game, this.phase));
+  }
+
+  drawCombo() {
+    this.comboPlane.mesh.visible = this.phase === 'player';
+    this.comboPlane.draw((ctx, w, h) => drawComboPill(ctx, w, h, this.game));
+  }
+
+  drawStocks() {
+    const g = this.game;
+    const active = this.phase === 'player';
+    this.stocks.p1.draw((ctx, w, h) => drawMagazine(ctx, w, h, g.players.p1, active && g.canAct('p1')));
+    this.stocks.p2.draw((ctx, w, h) => drawCircle(ctx, w, h, g.players.p2, active && g.canAct('p2')));
+  }
+
+  drawEnemySlot(i) {
+    const card = this.game.enemy.cards[i];
+    this.enemySlots[i].userData.plane.draw((ctx, w, h) => drawEnemySlot(ctx, w, h, card));
+  }
+
+  drawReveal() {
+    const { card, dmg } = this.reveal;
+    this.revealCard.draw((ctx, w, h) => drawEnemyCard(ctx, w, h, card, dmg));
   }
 
   refreshHands() {
     const g = this.game;
     for (const pid of PIDS) {
       const p = g.players[pid];
-      // 相方だけが金枠を出しているとき、自分の金枠を光らせる
-      const partnerWaiting = g.hasComboQueued(g.other(pid)) && !g.hasComboQueued(pid);
+      // 相方だけが金枠を使っているとき、自分の金枠を光らせる
+      const partnerWaiting = g.hasComboPlayed(g.other(pid)) && !g.hasComboPlayed(pid);
       p.hand.forEach((card, i) => {
         const s = this.hands[pid][i];
+        const err = card ? g.checkCard(pid, card) : null;
         const o = {
-          affordable: !card || card.cost <= p.mana,
+          affordable: !err,
+          costOk: !card || card.cost <= p.cost,
           inactive: this.phase !== 'player' || !g.canAct(pid),
           comboHint: !!(partnerWaiting && card?.combo),
         };
-        const key = `${card?.uid}|${o.affordable}|${o.inactive}|${o.comboHint}`;
+        const key = `${card?.uid}|${card?.boons.length}|${card?.aspect}|${o.affordable}|${o.costOk}|${o.inactive}|${o.comboHint}`;
         if (s.key === key) return;
         s.key = key;
         s.card.draw((ctx, w, h) => drawCard(ctx, w, h, card, o));
@@ -2160,7 +2356,8 @@ export class View {
         const p = this.targetPoint(e.target);
         if (e.blocked) this.popText(p.x - 90, p.top - 50, `防御 -${e.blocked}`, C.block, 28);
         const big = e.amount >= 20;
-        this.popText(p.x + (Math.random() - 0.5) * 70, p.top, String(e.amount), e.amount > 0 ? '#ffffff' : '#9aa4b0', big ? 84 : 60);
+        const col = e.dot ? '#d8b8ff' : e.amount > 0 ? '#ffffff' : '#9aa4b0';
+        this.popText(p.x + (Math.random() - 0.5) * 70, p.top, String(e.amount), col, big ? 84 : e.dot ? 48 : 60);
         if (e.amount > 0) this.hitFx(e.target);
         await this.wait(e.target === 'enemy' ? 170 : 280);
         return;
@@ -2182,15 +2379,54 @@ export class View {
         await this.wait(140);
         return;
       }
-      case 'mana': {
-        this.drawPanel('p1');
-        this.drawCharPanel('p1');
-        const p = this.targetPoint('p1');
-        this.popText(p.x, p.top - 30, `次ターン マナ+${e.amount}`, C.mana, 34);
-        this.ring(p.x, p.top + 40, C.mana);
-        await this.wait(150);
+      case 'cost':
+        for (const pid of PIDS) this.drawPanel(pid);
+        this.refreshHands();
+        return;
+      case 'costGain': {
+        this.drawPanel(e.pid);
+        this.refreshHands();
+        const x = e.pid === 'p1' ? 58 : W - 412;
+        this.popText(x, H - 120, `+${e.amount}`, C.mana, 34);
         return;
       }
+      case 'av':
+        this.drawAction();
+        if (e.av === 0) await this.banner('行動値 0', '翼竜が動く！', '#ff8f7a', 380);
+        return;
+      case 'stock': {
+        this.drawStocks();
+        this.refreshHands();
+        const sp = STOCK_POS[e.pid];
+        this.ring(sp.x, sp.top - 20, e.ench ? ENCH_COL[e.ench] : e.attr ? KIND_COL[e.attr] : e.lit ? '#ffe9a8' : PLIGHT[e.pid]);
+        if (e.ench) this.popText(sp.x, sp.top - 120, `次弾に${ENCHANT[e.ench].name}`, '#ffe48a', 30);
+        if (e.attr) this.popText(sp.x, sp.top - 120, `${KIND_LABEL[e.attr]}属性`, '#ffe48a', 30);
+        if (e.lit) this.popText(sp.x, sp.top - 120, '発動待ち', '#ffe9a8', 30);
+        if (e.clear) this.popText(sp.x, sp.top - 120, '魔法陣は捨て札へ', '#cfc6ee', 26);
+        await this.wait(120);
+        return;
+      }
+      case 'shot':
+        this.drawStocks();
+        await this.shotFx(e);
+        return;
+      case 'arcanaHit':
+        await this.arcanaFx(e);
+        return;
+      case 'broken':
+        this.drawEnemySlot(e.slot);
+        if (this.reveal?.slot === e.slot) {
+          this.drawReveal();
+          this.flash('#ffd0c0', 0.5);
+          this.shake(this.revealCard.mesh, { x: REVEAL.x }, 18);
+          await this.banner('破壊！', `「${e.card.name}」は使えなくなった`, '#ff9a7a', 600);
+        }
+        return;
+      case 'comboWait':
+        this.drawCombo();
+        this.drawCharPanel(e.pid);
+        this.refreshHands();
+        return;
       case 'status': {
         if (e.target === 'enemy') this.drawEnemyPanel();
         else if (e.target) this.drawCharPanel(e.target);
@@ -2207,15 +2443,14 @@ export class View {
         this.popText(p.x, p.top - 40, '構え', C.block, 34);
         return;
       }
-      case 'resolve':
-        await this.resolveCard(e.pid, e.card);
-        return;
       case 'combo':
+        this.drawCombo();
         await this.comboFx(e);
         return;
       case 'comboArmed':
         for (const pid of PIDS) this.drawCharPanel(pid);
-        await this.banner('連携成立', '次の敵の通常攻撃で2人ともパリィ成功 → 連携パリィ', C.gold, 900);
+        this.drawCombo();
+        await this.banner('連携成立', '次の敵の攻撃で2人ともパリィ成功 → 連携パリィ', C.gold, 900);
         return;
       case 'down':
         this.drawCharPanel(e.pid);
@@ -2230,7 +2465,8 @@ export class View {
         return;
       case 'frenzy':
         this.drawEnemyPanel();
-        await this.banner('激昂！', '翼竜が1ターンに2回行動する', '#ff7b6b', 650);
+        this.drawAction();
+        await this.banner('激昂！', `翼竜の行動値が${RULES.frenzyActionValue}になる`, '#ff7b6b', 650);
         return;
       default:
     }
@@ -2330,100 +2566,98 @@ export class View {
     await this.banner(e.parry ? '連携パリィ！' : '連携発動！', e.names.join(' × '), C.gold, 650);
   }
 
-  async turnBanner() {
-    const g = this.game;
-    const parts = PIDS.map((pid) => {
-      const cap = g.players[pid].cap;
-      const prev = g.turn > 1 ? capFor(pid, g.turn - 1) : cap;
-      const arrow = cap > prev ? ' ▲' : cap < prev ? ' ▼' : '';
-      return `${LABEL[pid]} マナ上限 ${cap}${arrow}`;
-    });
-    await this.banner(`TURN ${g.turn}`, parts.join('　／　'), '#e8fbff', 520);
+  // 弾丸: 弾倉（またはルスカー）から翼竜へ飛ばす
+  async shotFx(e) {
+    const from = e.fromStock ? { x: STOCK_POS.p1.x + 60, top: STOCK_POS.p1.top - 120 } : this.targetPoint('p1');
+    const to = this.targetPoint('enemy');
+    const b = canvasPlane(70, 30, (ctx) => {
+      ctx.save();
+      ctx.translate(35, 15);
+      ctx.rotate(Math.PI / 2);
+      drawBulletShape(ctx, 0, 0, 0.5, e.card.boons);
+      ctx.restore();
+    }, { layer: L.fx + 2 });
+    at(b.mesh, from.x, from.top);
+    b.mesh.rotation.z = Math.atan2(from.top - to.top, to.x - from.x);
+    this.scene.add(b.mesh);
+    if (!e.fromStock) this.lunge('p1', 30);
+    await this.tween(b.mesh.position, { x: to.x, y: H - to.top }, 200, 'in');
+    disposeMesh(b.mesh);
+  }
+
+  // アルカナ: 魔法陣の位置から、敵が使っているカードへ飛ばす
+  async arcanaFx(e) {
+    const sp = STOCK_POS.p2;
+    const [nx, ny] = circleNode(e.index, sp.x, sp.top - STOCK_H / 2 + 166);
+    const a = canvasPlane(70, 70, (ctx) => drawArcanaShape(ctx, 35, 35, 1, '#fff3cf'), { layer: L.reveal + 2 });
+    at(a.mesh, nx, ny);
+    this.scene.add(a.mesh);
+    await this.tween(a.mesh.position, { x: REVEAL.x, y: H - REVEAL.top }, 280, 'in');
+    disposeMesh(a.mesh);
+    if (this.reveal) {
+      this.reveal.card.hp = e.hp;
+      this.drawReveal();
+      this.shake(this.revealCard.mesh, { x: REVEAL.x }, 10);
+    }
+    this.popText(REVEAL.x + 60, REVEAL.top - 120, `${e.amount}${e.match ? ' 属性一致！' : ''}`, e.match ? C.gold : '#ffe9a8', e.match ? 44 : 52);
+    this.ring(REVEAL.x, REVEAL.top, '#ffe9a8');
+    await this.wait(220);
   }
 
   // ---------------- 味方の操作に対する即時演出
 
-  // 出したカードは手札から場へ飛び、ターン終了まで並んだままになる
+  // 使ったカードは手札から対象へ飛んで消える
   cardPlayed(pid, slot, card) {
     const s = this.hands[pid][slot];
     const mini = canvasPlane(MINI_W, MINI_H, (ctx, w, h) => drawMiniCard(ctx, w, h, card), { layer: L.fly, scale: Math.min(2.5, RES * 1.3) });
     mini.mesh.position.copy(s.group.position);
     mini.mesh.scale.set(s.group.scale.x * (CARD_W / MINI_W), s.group.scale.y * (CARD_H / MINI_H), 1);
     this.scene.add(mini.mesh);
-    this.zone[pid].push({ card, mesh: mini.mesh });
-    this.layoutZone(pid);
+    const dest = this.cardDest(pid, card);
+    (async () => {
+      await Promise.all([
+        this.tween(mini.mesh.position, { y: mini.mesh.position.y + 120 }, 160, 'out'),
+        this.tween(mini.mesh.scale, { x: 1.2, y: 1.2 }, 160, 'out'),
+      ]);
+      await Promise.all([
+        this.tween(mini.mesh.position, { x: dest.x, y: H - dest.top }, 260, 'in'),
+        this.tween(mini.mesh.scale, { x: 0.7, y: 0.7 }, 260, 'in'),
+        this.tween(mini.mesh.material, { opacity: 0 }, 120, 'in', 150),
+      ]);
+      disposeMesh(mini.mesh);
+    })();
     this.killTweens(s.slide);
     s.slide.y = -280;
     this.tween(s.slide, { y: 0 }, 300, 'out', 140);
     this.pulse(pid);
   }
 
-  // 段に収まらない枚数になったら重ねて詰める。後に出したカードほど手前
-  layoutZone(pid) {
-    const list = this.zone[pid];
-    const span = FIELD.w - FIELD.tag - 12 - MINI_W;
-    const step = list.length > 1 ? Math.min(MINI_W + 4, span / (list.length - 1)) : 0;
-    const x0 = FIELD.x - FIELD.w / 2 + FIELD.tag + 6 + MINI_W / 2;
-    list.forEach((z, i) => {
-      const m = z.mesh;
-      this.killTweens(m.position);
-      this.killTweens(m.scale);
-      this.tween(m.position, { x: x0 + i * step, y: H - FIELD.rows[pid] }, 320, 'inOut');
-      this.tween(m.scale, { x: 1, y: 1 }, 320, 'inOut').then(() => {
-        if (m.parent) m.renderOrder = L.mini + i / 100;
-      });
-    });
-  }
-
-  // 発動: 場のカードを一度持ち上げてから対象へ飛ばす
-  async resolveCard(pid, card) {
-    const list = this.zone[pid];
-    const i = list.findIndex((z) => z.card.uid === card.uid);
-    const z = i >= 0 ? list.splice(i, 1)[0] : null;
-    if (z) {
-      const m = z.mesh;
-      m.renderOrder = L.fly;
-      this.killTweens(m.position);
-      this.killTweens(m.scale);
-      await this.tween(m.scale, { x: 1.35, y: 1.35 }, 160, 'back');
-      await this.wait(120);
-      const dest = this.cardDest(pid, card);
-      if (card.type === 'attack' && pid === 'p1') this.lunge(pid);
-      else this.pulse(pid);
-      await Promise.all([
-        this.tween(m.position, { x: dest.x, y: H - dest.top }, 260, 'in'),
-        this.tween(m.scale, { x: 0.8, y: 0.8 }, 260, 'in'),
-        this.tween(m.material, { opacity: 0 }, 120, 'in', 150),
-      ]);
-      disposeMesh(m);
-    }
-  }
-
-  clearZone() {
-    for (const pid of PIDS) {
-      for (const z of this.zone[pid]) {
-        this.killTweens(z.mesh.position);
-        this.killTweens(z.mesh.scale);
-        this.killTweens(z.mesh.material);
-        disposeMesh(z.mesh);
-      }
-      this.zone[pid] = [];
-    }
-  }
-
   cardDest(pid, card) {
-    if (card.type === 'attack' || card.type === 'debuff') return this.targetPoint('enemy');
-    if (card.type === 'parry') return this.targetPoint(pid);
-    return this.targetPoint('p1');
+    if (card.type === 'attack' || card.type === 'bullet') return this.targetPoint('enemy');
+    if (card.type === 'load' || card.type === 'arcana') return { x: STOCK_POS[pid].x, top: STOCK_POS[pid].top - 60 };
+    if (card.type === 'enchant') {
+      const to = card.ench ? 'p1' : 'p2';
+      return { x: STOCK_POS[to].x, top: STOCK_POS[to].top - 60 };
+    }
+    return this.targetPoint(pid);
   }
 
-  denyCard(pid, slot) {
+  denyCard(pid, slot, err) {
     const s = this.hands[pid][slot];
     this.killTweens(s.shake);
     (async () => {
       for (const k of [1, -1, 0.6, -0.4, 0]) await this.tween(s.shake, { x: 10 * k }, 45, 'linear');
     })();
-    this.popText(s.home.x, H - s.home.y - 150, 'マナ不足', '#ff8a8a', 30);
+    this.popText(s.home.x, H - s.home.y - 150, DENY[err] ?? '使えない', '#ff8a8a', 30);
+  }
+
+  denyStock(pid, err) {
+    const m = this.stocks[pid].mesh;
+    const x = STOCK_POS[pid].x;
+    (async () => {
+      for (const k of [1, -1, 0.6, -0.4, 0]) await this.tween(m.position, { x: x + 8 * k }, 45, 'linear');
+    })();
+    this.popText(x, STOCK_POS[pid].top - 220, DENY[err] ?? '使えない', '#ff8a8a', 28);
   }
 
   handRerolled(pid) {
@@ -2436,15 +2670,6 @@ export class View {
     this.killTweens(t.rotation);
     t.rotation.z = 0;
     this.tween(t.rotation, { z: Math.PI * 2 }, 420, 'out').then(() => { t.rotation.z = 0; });
-  }
-
-  denyReroll(pid) {
-    const t = this.trash[pid].mesh;
-    const x = t.position.x;
-    (async () => {
-      for (const k of [1, -1, 0.6, -0.4, 0]) await this.tween(t.position, { x: x + 8 * k }, 45, 'linear');
-    })();
-    this.popText(x, 690, 'マナ不足', '#ff8a8a', 28);
   }
 
   // ---------------- 敵の行動
@@ -2462,7 +2687,9 @@ export class View {
     await this.tween(m.scale, { x: 0 }, 110, 'in');
     m.visible = false;
     const r = this.revealCard;
-    r.draw((ctx, w, h) => drawEnemyCard(ctx, w, h, card, dmg));
+    // HP はアルカナの演出に合わせて減らすので、表示用の写しを持つ
+    this.reveal = { slot, card: { ...card }, dmg };
+    this.drawReveal();
     r.mesh.visible = true;
     r.mesh.position.set(target.x, target.y, 0);
     r.mesh.scale.set(0, 1, 1);
@@ -2490,6 +2717,8 @@ export class View {
       this.tween(r.mesh.scale, { x: 0.8, y: 0.8 }, 220, 'in'),
     ]);
     r.mesh.visible = false;
+    this.reveal = null;
+    this.drawEnemySlot(slot);
     const m = this.enemySlots[slot];
     const home = m.userData.home;
     m.visible = true;
@@ -2592,7 +2821,7 @@ export class View {
   showResult(game, ready) {
     this.overlayState = {
       kind: 'result',
-      info: { result: game.over, turn: game.turn, hp1: game.players.p1.hp, hp2: game.players.p2.hp },
+      info: { result: game.over, winBy: game.winBy, round: game.round, hp1: game.players.p1.hp, hp2: game.players.p2.hp },
     };
     this.updateStartReady(ready);
   }
@@ -2632,6 +2861,10 @@ export class View {
     if (Math.hypot(x - 1860, top - 56) < 46) this.toggleHelp();
   }
 }
+
+const DENY = {
+  cost: 'コスト不足', full: 'もう置けない', noBullet: '弾倉が空', noArcana: '対象のアルカナがない',
+};
 
 function markerX(pos) {
   return TRACK.x0 + pos * (TRACK.x1 - TRACK.x0);

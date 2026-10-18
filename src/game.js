@@ -1,9 +1,10 @@
 // 戦闘ルール本体。描画には依存しない（node でもそのまま動く）
 // 各操作は「起きたこと」をイベント配列で返し、描画側がそれを順に演出する
-import { RULES, CARDS, DECKS, ENEMY } from './data.js';
+import { RULES, CARDS, DECKS, ENEMY, ENCHANT, KIND_LABEL } from './data.js';
 
 export const PIDS = ['p1', 'p2'];
 export const LABEL = { p1: '1P', p2: '2P' };
+export const NAME = { p1: 'ルスカー', p2: 'ラティシア' };
 
 const log = (text) => ({ type: 'log', text });
 
@@ -16,14 +17,9 @@ function shuffle(arr, rng) {
 }
 
 let uid = 0;
-const makeCard = (id) => ({ uid: ++uid, id, ...CARDS[id] });
-const makeEnemyCard = (id) => ({ uid: ++uid, id, ...ENEMY.cards[id] });
-
-export function capFor(pid, turn) {
-  const c = RULES.cap[pid];
-  const v = c.start + c.step * (turn - 1);
-  return c.step > 0 ? Math.min(c.bound, v) : Math.max(c.bound, v);
-}
+// 弾丸は boons（付いた加護）、アルカナは aspect（付いた属性）を持ち、捨て札に行っても引き継ぐ
+const makeCard = (id) => ({ uid: ++uid, id, ...CARDS[id], boons: [], aspect: null });
+const makeEnemyCard = (id) => ({ uid: ++uid, id, ...ENEMY.cards[id], maxHp: ENEMY.cards[id].hp, broken: false });
 
 export function grade(acc) {
   if (acc >= RULES.parry.perfectAcc) return 'PERFECT';
@@ -31,8 +27,12 @@ export function grade(acc) {
   return '失敗';
 }
 
+export function bulletDamage(card) {
+  return card.dmg + card.boons.filter((e) => e === 'power').length * ENCHANT.power.dmg;
+}
+
 export function describeEnemyCard(card, dmg = card.dmg) {
-  const target = { p1: '1P', p2: '2P', all: '味方全員', highHp: 'HPが高い方' }[card.target];
+  const target = { random: 'どちらか1人', all: '味方全員', highHp: 'HPが高い方' }[card.target];
   if (card.dmg != null) return `${target}に${dmg}ダメージ`;
   if (card.selfBlock) return `自身に防御${card.selfBlock}`;
   if (card.strength) return `以後の攻撃ダメージ+${card.strength}`;
@@ -42,23 +42,30 @@ export function describeEnemyCard(card, dmg = card.dmg) {
 export class Game {
   constructor(rng = Math.random) {
     this.rng = rng;
-    this.turn = 0;
+    this.round = 1; // 敵が行動するたびに進む
     this.over = null; // 'win' | 'lose'
+    this.winBy = null; // 'hp' | 'cards'
     this.enemy = {
       name: ENEMY.name, hp: RULES.enemyMaxHp, maxHp: RULES.enemyMaxHp, block: 0,
-      strength: 0, weak: null, vuln: null, frenzy: false,
-      deck: shuffle(ENEMY.deck.map(makeEnemyCard), rng), discard: [], hand: [],
+      strength: 0, frenzy: false, decay: 0, resist: 0,
+      cards: ENEMY.lineup.map(makeEnemyCard),
     };
-    for (let i = 0; i < ENEMY.handSize; i++) this.enemy.hand.push(this.enemyDraw());
+    this.avMax = RULES.actionValue;
+    this.av = this.avMax;
+    this.enemyPending = false; // 行動値が0になり、敵の行動待ち
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
+    // 連携: 敵が次に行動するまでに出した金枠
+    this.combo = { p1: [], p2: [] };
     // パリィを含む連携は、次の通常攻撃で2人ともパリィに成功するまで保留する: [[pid, card], ...]
     this.comboParry = null;
   }
 
   makePlayer(pid) {
     const p = {
-      id: pid, hp: RULES.playerMaxHp, maxHp: RULES.playerMaxHp, block: 0,
-      mana: 0, cap: 0, manaNext: 0, ready: false, queued: [], armed: [], nextMult: 1, nextBonus: 0,
+      id: pid, hp: RULES.playerMaxHp, maxHp: RULES.playerMaxHp, block: 0, cost: RULES.startCost,
+      armed: [], nextBonus: 0, rapid: 0,
+      // p1: 弾倉（末尾が一番上＝次弾） / p2: 魔法陣（先頭から順に埋まる）。中身は { card, lit }
+      stock: [],
       deck: shuffle(DECKS[pid].map(makeCard), this.rng), discard: [], hand: [],
     };
     for (let i = 0; i < RULES.handSize; i++) p.hand.push(this.draw(p));
@@ -73,132 +80,226 @@ export class Game {
     return p.deck.pop() ?? null;
   }
 
-  enemyDraw() {
-    const e = this.enemy;
-    if (!e.deck.length) {
-      e.deck = shuffle(e.discard, this.rng);
-      e.discard = [];
-    }
-    return e.deck.pop() ?? null;
-  }
-
   alive(pid) { return this.players[pid].hp > 0; }
   alivePids() { return PIDS.filter((pid) => this.alive(pid)); }
   other(pid) { return pid === 'p1' ? 'p2' : 'p1'; }
-  nextCap(pid) { return capFor(pid, this.turn + 1); }
-  canAct(pid) { return !this.over && this.alive(pid) && !this.players[pid].ready; }
-  allReady() { return PIDS.every((pid) => this.players[pid].ready || !this.alive(pid)); }
+  canAct(pid) { return !this.over && !this.enemyPending && this.alive(pid); }
+  hasComboPlayed(pid) { return this.combo[pid].length > 0; }
 
-  // ---------------- 味方ターン ----------------
+  // 弾倉の次弾 / 魔法陣でまだ発動していない最初のアルカナ / 属性を付けられる最初のアルカナ
+  topBullet() { return this.players.p1.stock.at(-1) ?? null; }
+  nextUnlit() { return this.players.p2.stock.find((s) => !s.lit) ?? null; }
+  attrTarget() { return this.players.p2.stock.find((s) => !s.card.aspect) ?? null; }
 
-  startTurn() {
-    this.turn++;
-    for (const pid of PIDS) {
-      const p = this.players[pid];
-      p.cap = capFor(pid, this.turn);
-      p.mana = p.cap + p.manaNext;
-      p.manaNext = 0;
-      p.ready = !this.alive(pid);
-    }
+  // ---------------- 味方の行動
+
+  // カードが今使えるか。使えないときは理由を返す
+  checkCard(pid, card) {
+    const p = this.players[pid];
+    if (card.cost > p.cost) return 'cost';
+    if (card.load && p.stock.length >= RULES.stockMax) return 'full';
+    if (card.type === 'arcana' && p.stock.length >= RULES.stockMax) return 'full';
+    if (card.ench && (!this.alive('p1') || !this.topBullet())) return 'noBullet';
+    if (card.attr && (!this.alive('p2') || !this.attrTarget())) return 'noArcana';
+    return null;
   }
 
-  // ターン中はカードを場に出すだけ（マナはここで払う）。効果は resolveTurn でまとめて発動する
+  // カードは使った時点で発動する
   playCard(pid, slot) {
     if (!this.canAct(pid)) return null;
     const p = this.players[pid];
     const card = p.hand[slot];
     if (!card) return null;
-    if (card.cost > p.mana) return { error: 'mana' };
-    p.mana -= card.cost;
-    p.queued.push(card);
+    const err = this.checkCard(pid, card);
+    if (err) return { error: err };
+    p.cost -= card.cost;
     p.hand[slot] = this.draw(p);
-    return { card };
+    const ev = [log(`${NAME[pid]}「${card.name}」`)];
+    this.resolveCard(pid, card, ev);
+    if (card.combo) this.addCombo(pid, card, ev);
+    if (!card.free) this.afterAction(pid, ev);
+    this.checkOver(ev);
+    ev.push({ type: 'cost' });
+    return { card, events: ev };
   }
 
-  hasComboQueued(pid) { return this.players[pid].queued.some((c) => c.combo); }
-
-  // 2人とも「ターン終了」を押したら、2P → 1P の順に場のカードを出した順で発動する
-  // 同じターンに2人とも金枠を出していれば連携。金枠にパリィが含まれるときは次の通常攻撃まで保留
-  resolveTurn() {
-    const ev = [];
-    const combo = PIDS.every((pid) => this.hasComboQueued(pid));
-    const comboCards = PIDS.flatMap((pid) => this.players[pid].queued.filter((c) => c.combo).map((c) => [pid, c]));
-    for (const pid of ['p2', 'p1']) {
-      const p = this.players[pid];
-      for (const card of p.queued) {
-        if (this.over) break;
-        ev.push({ type: 'resolve', pid, card }, log(`${LABEL[pid]}「${card.name}」`));
-        if (card.type === 'parry') {
-          // パリィは「構え」として次の敵の通常攻撃まで待機する
-          p.armed.push(card);
-          ev.push({ type: 'armed', pid });
+  resolveCard(pid, card, ev) {
+    const p = this.players[pid];
+    switch (card.type) {
+      case 'bullet':
+        this.fireBullet(card, ev);
+        this.fireRapid(ev);
+        return;
+      case 'arcana':
+        p.stock.push({ card, lit: true });
+        ev.push({ type: 'stock', pid, lit: true }, log('アルカナ発動待ち'));
+        return;
+      case 'load': {
+        const made = makeCard(pid === 'p1' ? 'bullet' : 'arcana');
+        p.stock.push({ card: made, lit: false });
+        ev.push({ type: 'stock', pid, add: true });
+        break;
+      }
+      case 'enchant':
+        if (card.ench) {
+          this.topBullet().card.boons.push(card.ench);
+          ev.push({ type: 'stock', pid: 'p1', ench: card.ench }, log(`弾丸に${ENCHANT[card.ench].name}を付与`));
         } else {
-          if (card.hits) this.attack(pid, card.hits, ev, true);
-          this.applyFx(pid, card.fx, ev);
-          p.discard.push(card);
+          this.attrTarget().card.aspect = card.attr;
+          ev.push({ type: 'stock', pid: 'p2', attr: card.attr }, log(`アルカナに${KIND_LABEL[card.attr]}属性`));
         }
-        this.checkOver(ev);
-      }
-      p.queued = [];
+        break;
+      case 'guard':
+        this.gainBlock(pid, card.gain, ev);
+        break;
+      case 'parry':
+        // パリィは「構え」として次の敵の攻撃まで待機する
+        p.armed.push(card);
+        ev.push({ type: 'armed', pid });
+        return;
+      default:
+        if (card.hits) this.attack(card.hits, ev);
+        this.applyFx(pid, card.fx, ev);
     }
-    if (combo && !this.over) {
-      const names = comboCards.map(([, c]) => c.name);
-      if (comboCards.some(([, c]) => c.type === 'parry')) {
-        this.comboParry = [...(this.comboParry ?? []), ...comboCards];
-        ev.push({ type: 'comboArmed', names }, log('連携成立！ 次の通常攻撃で2人ともパリィ成功で発動'));
-      } else {
-        ev.push({ type: 'combo', parry: false, names }, log(`連携発動！「${names.join('」×「')}」`));
-        for (const [pid, c] of comboCards) this.applyFx(pid, c.comboFx, ev);
-        this.checkOver(ev);
-      }
+    p.discard.push(card);
+  }
+
+  // 敵が次に行動するまでに2人とも金枠を出すと連携。金枠にパリィが含まれるときは次の攻撃まで保留
+  addCombo(pid, card, ev) {
+    this.combo[pid].push(card);
+    if (!PIDS.every((q) => this.hasComboPlayed(q))) {
+      ev.push({ type: 'comboWait', pid });
+      return;
     }
-    return ev;
+    const cards = PIDS.flatMap((q) => this.combo[q].map((c) => [q, c]));
+    this.combo = { p1: [], p2: [] };
+    const names = cards.map(([, c]) => c.name);
+    if (cards.some(([, c]) => c.type === 'parry')) {
+      this.comboParry = [...(this.comboParry ?? []), ...cards];
+      ev.push({ type: 'comboArmed', names }, log('連携成立！ 次の攻撃で2人ともパリィ成功で発動'));
+      return;
+    }
+    ev.push({ type: 'combo', parry: false, names }, log(`連携発動！「${names.join('」×「')}」`));
+    for (const [q, c] of cards) this.applyFx(q, c.comboFx, ev);
+  }
+
+  // 弾倉・魔法陣を使う。ルスカーは次弾を撃ち、ラティシアは次のアルカナを発動待ちにする
+  useStock(pid) {
+    if (!this.canAct(pid)) return null;
+    const p = this.players[pid];
+    const cost = CARDS[pid === 'p1' ? 'bullet' : 'arcana'].cost;
+    if (pid === 'p1' ? !p.stock.length : !this.nextUnlit()) return { error: pid === 'p1' ? 'noBullet' : 'noArcana' };
+    if (p.cost < cost) return { error: 'cost' };
+    p.cost -= cost;
+    const ev = [];
+    if (pid === 'p1') {
+      const { card } = p.stock.pop();
+      ev.push(log(`ルスカー 弾丸を撃った`));
+      this.fireBullet(card, ev, true);
+      this.fireRapid(ev);
+    } else {
+      this.nextUnlit().lit = true;
+      ev.push({ type: 'stock', pid, lit: true }, log('アルカナ発動待ち'));
+    }
+    this.afterAction(pid, ev);
+    this.checkOver(ev);
+    ev.push({ type: 'cost' });
+    return { events: ev };
+  }
+
+  fireBullet(card, ev, fromStock = false) {
+    const p1 = this.players.p1;
+    const e = this.enemy;
+    ev.push({ type: 'shot', card, fromStock });
+    this.hitEnemy(bulletDamage(card) + p1.nextBonus, ev);
+    if (p1.nextBonus) {
+      p1.nextBonus = 0;
+      ev.push({ type: 'status', target: 'p1' });
+    }
+    const decay = card.boons.filter((x) => x === 'decay').length;
+    const resist = card.boons.filter((x) => x === 'resist').length;
+    if (decay && e.hp > 0) {
+      e.decay += decay;
+      ev.push({ type: 'status', target: 'enemy', text: `崩壊×${e.decay}` });
+    }
+    if (resist && e.hp > 0) {
+      e.resist += resist;
+      ev.push({ type: 'status', target: 'enemy', text: `抵抗×${e.resist}` });
+    }
+    p1.discard.push(card);
+  }
+
+  // 速射: 弾丸を撃ったとき、弾倉に次弾があれば続けて撃つ
+  fireRapid(ev) {
+    const p1 = this.players.p1;
+    if (!p1.rapid) return;
+    p1.rapid--;
+    ev.push({ type: 'status', target: 'p1' });
+    if (!p1.stock.length || this.enemy.hp <= 0) return;
+    ev.push(log('速射！'));
+    this.fireBullet(p1.stock.pop().card, ev, true);
   }
 
   reroll(pid) {
     if (!this.canAct(pid)) return null;
     const p = this.players[pid];
-    if (p.mana < RULES.rerollCost) return { error: 'mana' };
-    p.mana -= RULES.rerollCost;
     for (const c of p.hand) if (c) p.discard.push(c);
     p.hand = p.hand.map(() => null);
     for (let i = 0; i < RULES.handSize; i++) p.hand[i] = this.draw(p);
-    return { events: [log(`${LABEL[pid]} 手札を引き直した`)] };
+    const ev = [log(`${NAME[pid]} 手札を引き直した`)];
+    for (const q of this.alivePids()) this.gainCost(q, 1, ev);
+    this.afterAction(pid, ev, false);
+    this.checkOver(ev);
+    ev.push({ type: 'cost' });
+    return { events: ev };
   }
 
-  toggleReady(pid) {
-    if (this.over || !this.alive(pid)) return;
-    this.players[pid].ready = !this.players[pid].ready;
+  // 行動のあと: 相方のコスト+1、敵の行動値-1、崩壊のダメージ
+  afterAction(pid, ev, partnerGain = true) {
+    if (partnerGain && this.alive(this.other(pid))) this.gainCost(this.other(pid), 1, ev);
+    this.av = Math.max(0, this.av - 1);
+    ev.push({ type: 'av', av: this.av });
+    this.tickDecay(ev);
+    if (this.av === 0 && !this.over) this.enemyPending = true;
   }
 
-  // ---------------- 効果 ----------------
+  gainCost(pid, amount, ev) {
+    this.players[pid].cost += amount;
+    ev.push({ type: 'costGain', pid, amount });
+  }
 
-  attack(pid, hits, ev, useBuffs) {
+  tickDecay(ev) {
+    const e = this.enemy;
+    if (!e.decay || e.hp <= 0) return;
+    ev.push(log(`崩壊 ${e.decay * ENCHANT.decay.dmg}ダメージ`));
+    this.hitEnemy(e.decay * ENCHANT.decay.dmg, ev, true);
+  }
+
+  // ---------------- 効果
+
+  attack(hits, ev) {
     const p1 = this.players.p1;
-    const buffed = useBuffs && pid === 'p1';
-    hits.forEach((base, i) => {
-      const dmg = buffed ? Math.round(base * p1.nextMult) + (i === 0 ? p1.nextBonus : 0) : base;
-      this.hitEnemy(dmg, ev);
-    });
-    if (buffed && (p1.nextMult !== 1 || p1.nextBonus)) {
-      p1.nextMult = 1;
+    hits.forEach((base, i) => this.hitEnemy(base + (i === 0 ? p1.nextBonus : 0), ev));
+    if (p1.nextBonus) {
       p1.nextBonus = 0;
       ev.push({ type: 'status', target: 'p1' });
     }
   }
 
-  hitEnemy(amount, ev) {
+  hitEnemy(amount, ev, dot = false) {
     const e = this.enemy;
     if (e.hp <= 0) return;
-    let dmg = amount + (e.vuln ? e.vuln.amount : 0);
+    let dmg = amount;
     const blocked = Math.min(e.block, dmg);
     e.block -= blocked;
     dmg -= blocked;
     e.hp = Math.max(0, e.hp - dmg);
-    ev.push({ type: 'damage', target: 'enemy', amount: dmg, blocked, hp: e.hp, block: e.block });
+    ev.push({ type: 'damage', target: 'enemy', amount: dmg, blocked, hp: e.hp, block: e.block, dot });
     if (!e.frenzy && e.hp > 0 && e.hp <= e.maxHp * RULES.frenzyRatio) {
       e.frenzy = true;
-      ev.push({ type: 'frenzy' }, log('翼竜が激昂した！ 1ターンに2回行動する'));
+      this.avMax = RULES.frenzyActionValue;
+      this.av = Math.min(this.av, this.avMax);
+      ev.push({ type: 'frenzy' }, { type: 'av', av: this.av }, log(`翼竜が激昂した！ 行動値が${this.avMax}になる`));
     }
   }
 
@@ -214,9 +315,8 @@ export class Game {
       p.discard.push(...p.armed);
       p.armed = [];
       p.block = 0;
-      p.ready = true;
       this.comboParry = null;
-      ev.push({ type: 'down', pid }, log(`${LABEL[pid]} 戦闘不能`));
+      ev.push({ type: 'down', pid }, log(`${NAME[pid]} 戦闘不能`));
     }
   }
 
@@ -238,47 +338,57 @@ export class Game {
   applyFx(pid, fx, ev) {
     if (!fx) return;
     const p1 = this.players.p1;
-    const e = this.enemy;
-    if (fx.hits) this.attack(pid, fx.hits, ev, false);
+    if (fx.hits) this.attack(fx.hits, ev);
     if (fx.counter) {
-      ev.push(log(`${LABEL[pid]} 反撃！`));
+      ev.push(log(`${NAME[pid]} 反撃！`));
       this.hitEnemy(fx.counter, ev);
-    }
-    if (fx.p1Mult && this.alive('p1')) {
-      p1.nextMult *= fx.p1Mult;
-      ev.push({ type: 'status', target: 'p1', text: `攻撃×${fx.p1Mult}` });
     }
     if (fx.p1Bonus && this.alive('p1')) {
       p1.nextBonus += fx.p1Bonus;
       ev.push({ type: 'status', target: 'p1', text: `次の攻撃+${fx.p1Bonus}` });
     }
-    if (fx.p1NextMana && this.alive('p1')) {
-      p1.manaNext += fx.p1NextMana;
-      ev.push({ type: 'mana', target: 'p1', amount: fx.p1NextMana });
+    if (fx.rapid) {
+      p1.rapid += fx.rapid;
+      ev.push({ type: 'status', target: 'p1', text: '速射' });
     }
-    if (fx.weak) {
-      e.weak = { amount: fx.weak[0], turns: fx.weak[1] };
-      ev.push({ type: 'status', target: 'enemy', text: `与ダメージ-${fx.weak[0]}` });
-    }
-    if (fx.vuln) {
-      e.vuln = { amount: fx.vuln[0], turns: fx.vuln[1] };
-      ev.push({ type: 'status', target: 'enemy', text: `被ダメージ+${fx.vuln[0]}` });
-    }
+    if (fx.selfCost) this.gainCost(pid, fx.selfCost, ev);
     if (fx.healAll) for (const t of this.alivePids()) this.heal(t, fx.healAll, ev);
   }
 
-  // ---------------- 敵ターン ----------------
+  // ---------------- 敵の行動
 
-  enemyActionCount() { return this.enemy.frenzy ? 2 : 1; }
+  usableEnemySlots() {
+    return this.enemy.cards.map((c, i) => (c.broken ? -1 : i)).filter((i) => i >= 0);
+  }
 
   pickEnemySlot() {
-    const slots = this.enemy.hand.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
+    const slots = this.usableEnemySlots();
     return slots[Math.floor(this.rng() * slots.length)];
   }
 
   enemyDamage(card) {
-    const e = this.enemy;
-    return Math.max(0, card.dmg + e.strength - (e.weak ? e.weak.amount : 0));
+    const base = Math.max(0, card.dmg + this.enemy.strength);
+    return this.enemy.resist ? Math.floor(base / 2) : base;
+  }
+
+  // 発動待ちのアルカナが、敵の使ったカードに当たる。HPが0になったカードは破壊され、その行動も止まる
+  arcanaStrike(slot) {
+    const ev = [];
+    const card = this.enemy.cards[slot];
+    const p2 = this.players.p2;
+    for (const s of p2.stock) {
+      if (!s.lit || card.broken) continue;
+      const match = s.card.aspect === card.kind;
+      const dmg = s.card.dmg + (match ? RULES.arcanaAttrBonus : 0);
+      card.hp = Math.max(0, card.hp - dmg);
+      ev.push({ type: 'arcanaHit', slot, amount: dmg, match, hp: card.hp, index: p2.stock.indexOf(s) });
+      if (card.hp === 0) {
+        card.broken = true;
+        ev.push({ type: 'broken', slot, card }, log(`「${card.name}」を破壊！`));
+      }
+    }
+    this.checkOver(ev);
+    return ev;
   }
 
   armedPids() { return this.alivePids().filter((pid) => this.players[pid].armed.length); }
@@ -303,7 +413,7 @@ export class Game {
     for (const pid of pids) {
       acc[pid] = Math.max(0, Math.min(1, accs[pid] ?? 0));
       success[pid] = acc[pid] >= RULES.parry.successAcc;
-      ev.push(log(`${LABEL[pid]} パリィ ${grade(acc[pid])}`));
+      ev.push(log(`${NAME[pid]} パリィ ${grade(acc[pid])}`));
     }
     const blockFor = (card, pid) => Math.round(card.block[0] + (card.block[1] - card.block[0]) * acc[pid]);
     for (const pid of pids) {
@@ -333,11 +443,14 @@ export class Game {
 
   resolveEnemyCard(slot) {
     const e = this.enemy;
-    const card = e.hand[slot];
+    const card = e.cards[slot];
     const ev = [];
-    e.hand[slot] = null;
     if (card.dmg != null) {
       const dmg = this.enemyDamage(card);
+      if (e.resist) {
+        e.resist--;
+        ev.push({ type: 'status', target: 'enemy', text: '抵抗でダメージ半減' });
+      }
       for (const t of this.targetsOf(card.target)) this.hitPlayer(t, dmg, ev);
     }
     if (card.selfBlock) this.gainBlock('enemy', card.selfBlock, ev);
@@ -345,8 +458,6 @@ export class Game {
       e.strength += card.strength;
       ev.push({ type: 'status', target: 'enemy', text: `攻撃+${card.strength}` });
     }
-    e.discard.push(card);
-    e.hand[slot] = this.enemyDraw();
     this.checkOver(ev);
     return ev;
   }
@@ -354,26 +465,44 @@ export class Game {
   targetsOf(target) {
     const alive = this.alivePids();
     if (target === 'all') return alive;
-    if (target === 'highHp') {
-      if (alive.length < 2) return alive;
-      const { p1, p2 } = this.players;
-      return [p1.hp >= p2.hp ? 'p1' : 'p2'];
-    }
-    return this.alive(target) ? [target] : alive;
+    if (target === 'random') return [alive[Math.floor(this.rng() * alive.length)]];
+    if (alive.length < 2) return alive;
+    const { p1, p2 } = this.players;
+    return [p1.hp >= p2.hp ? 'p1' : 'p2'];
   }
 
-  endEnemyPhase() {
+  // 敵の行動の締め: 崩壊のダメージ（ここで切れる）、魔法陣のアルカナはすべて捨て札、両者のコスト+1、行動値を戻す
+  endEnemyAction() {
+    const ev = [];
     const e = this.enemy;
-    for (const k of ['weak', 'vuln']) {
-      if (e[k] && --e[k].turns <= 0) e[k] = null;
+    this.tickDecay(ev);
+    if (e.decay) {
+      e.decay = 0;
+      ev.push({ type: 'status', target: 'enemy' });
     }
-    return [{ type: 'status', target: 'enemy' }];
+    const p2 = this.players.p2;
+    if (p2.stock.length) {
+      p2.discard.push(...p2.stock.map((s) => s.card));
+      p2.stock = [];
+      ev.push({ type: 'stock', pid: 'p2', clear: true });
+    }
+    this.checkOver(ev);
+    if (this.over) return ev;
+    for (const pid of this.alivePids()) this.gainCost(pid, 1, ev);
+    this.combo = { p1: [], p2: [] };
+    this.round++;
+    this.av = this.avMax;
+    this.enemyPending = false;
+    ev.push({ type: 'av', av: this.av }, { type: 'cost' }, { type: 'status', target: 'p1' }, { type: 'status', target: 'p2' });
+    return ev;
   }
 
   checkOver(ev) {
     if (this.over) return;
-    if (this.enemy.hp <= 0) this.over = 'win';
+    const attacksLeft = this.enemy.cards.some((c) => c.kind === 'attack' && !c.broken);
+    if (this.enemy.hp <= 0) [this.over, this.winBy] = ['win', 'hp'];
+    else if (!attacksLeft) [this.over, this.winBy] = ['win', 'cards'];
     else if (!this.alivePids().length) this.over = 'lose';
-    if (this.over) ev.push({ type: 'over', result: this.over });
+    if (this.over) ev.push({ type: 'over', result: this.over, winBy: this.winBy });
   }
 }

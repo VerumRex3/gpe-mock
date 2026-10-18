@@ -1,4 +1,4 @@
-// 入力とターン進行。ルールは game.js、見た目は view.js
+// 入力と進行。ルールは game.js、見た目は view.js
 import { Game } from './game.js';
 import { View } from './view.js';
 
@@ -7,13 +7,13 @@ const KEYMAP = {
   KeyD: ['p1', 'right'],
   Space: ['p1', 'use'],
   KeyW: ['p1', 'reroll'],
-  KeyS: ['p1', 'end'],
+  KeyS: ['p1', 'stock'],
   ArrowLeft: ['p2', 'left'],
   ArrowRight: ['p2', 'right'],
   Enter: ['p2', 'use'],
   NumpadEnter: ['p2', 'use'],
   ArrowUp: ['p2', 'reroll'],
-  ArrowDown: ['p2', 'end'],
+  ArrowDown: ['p2', 'stock'],
 };
 
 const view = new View(document.getElementById('app'));
@@ -22,7 +22,7 @@ document.getElementById('boot')?.remove();
 
 const cursor = { p1: 0, p2: 0 };
 const startReady = { p1: false, p2: false };
-// title / intro / player / resolve / enemy / parry / ending / result
+// title / intro / player / enemy / parry / ending / result
 let mode = 'title';
 let game = new Game();
 
@@ -57,40 +57,51 @@ function onAction(pid, act) {
 }
 
 function playerAction(pid, act) {
-  if (act === 'end') {
-    if (!game.alive(pid)) return;
-    game.toggleReady(pid);
-    view.refresh();
-    if (game.allReady()) resolvePhase();
-    return;
-  }
   if (!game.canAct(pid)) return;
   if (act === 'left' || act === 'right') {
     cursor[pid] = (cursor[pid] + (act === 'left' ? 2 : 1)) % 3;
     return;
   }
+  let res = null;
   if (act === 'use') {
     const slot = cursor[pid];
-    const res = game.playCard(pid, slot);
+    res = game.playCard(pid, slot);
     if (!res) return;
     if (res.error) {
-      view.denyCard(pid, slot);
+      view.denyCard(pid, slot, res.error);
       return;
     }
     view.cardPlayed(pid, slot, res.card);
-    view.refresh();
-    return;
-  }
-  if (act === 'reroll') {
-    const res = game.reroll(pid);
+  } else if (act === 'stock') {
+    res = game.useStock(pid);
     if (!res) return;
     if (res.error) {
-      view.denyReroll(pid);
+      view.denyStock(pid, res.error);
       return;
     }
+  } else if (act === 'reroll') {
+    res = game.reroll(pid);
+    if (!res) return;
     view.handRerolled(pid);
-    view.enqueue(res.events);
-    view.refresh();
+  }
+  if (!res) return;
+  view.enqueue(res.events);
+  view.refresh();
+  afterPlayerAction();
+}
+
+// 決着か行動値0なら、演出が終わるのを待って次へ進む
+async function afterPlayerAction() {
+  if (mode !== 'player') return;
+  if (game.over) {
+    mode = 'ending';
+    await view.idle();
+    return finish();
+  }
+  if (game.enemyPending) {
+    mode = 'enemy';
+    await view.idle();
+    await enemyPhase();
   }
 }
 
@@ -100,42 +111,25 @@ async function startBattle() {
   game = new Game();
   cursor.p1 = cursor.p2 = 0;
   view.bindGame(game, cursor);
-  await view.hideOverlay();
-  await beginPlayerTurn();
-}
-
-async function beginPlayerTurn() {
-  mode = 'intro';
-  game.startTurn();
   view.setPhase('intro');
-  if (game.turn > 1) await view.wait(450);
-  await view.turnBanner();
+  await view.hideOverlay();
+  await view.banner('BATTLE START', '2人で自由に行動 ― カードを使うたびに敵の行動値が減る', '#e8fbff', 700);
   mode = 'player';
   view.setPhase('player');
 }
 
-// 場に出したカードをまとめて発動する
-async function resolvePhase() {
-  mode = 'resolve';
-  view.setPhase('resolve');
-  await view.idle();
-  view.enqueue(game.resolveTurn());
-  await view.idle();
-  if (game.over) return finish();
-  await enemyPhase();
-}
-
+// 敵の行動: カードを1枚選ぶ → 発動待ちのアルカナが当たる → 壊れなければパリィ → 効果
 async function enemyPhase() {
   mode = 'enemy';
   view.setPhase('enemy');
+  const slot = game.pickEnemySlot();
+  const card = game.enemy.cards[slot];
+  view.addLog(`敵「${card.name}」`);
+  await view.revealEnemyCard(slot, card, card.dmg != null ? game.enemyDamage(card) : undefined);
+  view.enqueue(game.arcanaStrike(slot));
   await view.idle();
-  const actions = game.enemyActionCount();
-  for (let i = 0; i < actions && !game.over; i++) {
-    const slot = game.pickEnemySlot();
-    const card = game.enemy.hand[slot];
-    view.addLog(`敵「${card.name}」`);
-    await view.revealEnemyCard(slot, card, card.dmg != null ? game.enemyDamage(card) : undefined);
-    if (card.kind === 'normal' && game.parryPids().length) {
+  if (!card.broken && !game.over) {
+    if (card.kind === 'attack' && game.parryPids().length) {
       mode = 'parry';
       view.setPhase('parry');
       const accs = await view.runParry(game.parryPids());
@@ -143,20 +137,21 @@ async function enemyPhase() {
       view.setPhase('enemy');
       view.enqueue(game.resolveParry(accs));
       await view.idle();
-      if (game.over) {
-        await view.dismissEnemyCard(slot);
-        break;
-      }
     }
-    await view.enemyAct(card);
-    view.enqueue(game.resolveEnemyCard(slot));
+    if (!game.over) {
+      await view.enemyAct(card);
+      view.enqueue(game.resolveEnemyCard(slot));
+      await view.idle();
+    }
+  }
+  await view.dismissEnemyCard(slot);
+  if (!game.over) {
+    view.enqueue(game.endEnemyAction());
     await view.idle();
-    await view.dismissEnemyCard(slot);
   }
   if (game.over) return finish();
-  view.enqueue(game.endEnemyPhase());
-  await view.idle();
-  await beginPlayerTurn();
+  mode = 'player';
+  view.setPhase('player');
 }
 
 // ?debug を付けたときだけ、確認用の操作をコンソールに出す
