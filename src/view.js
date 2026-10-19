@@ -30,8 +30,8 @@ const PCOL = { p1: C.p1, p2: C.p2 };
 const PDARK = { p1: C.p1Dark, p2: C.p2Dark };
 const PLIGHT = { p1: C.p1Light, p2: C.p2Light };
 export const KEYS = {
-  p1: { move: 'A / D', use: 'SPACE', reroll: 'W', stock: 'S' },
-  p2: { move: '← / →', use: 'ENTER', reroll: '↑', stock: '↓' },
+  p1: { move: 'A / D', use: 'SPACE', stock: 'W', reroll: 'S', undo: 'Shift' },
+  p2: { move: '← / →', use: 'ENTER', stock: '↑', reroll: '↓', undo: 'BackSpace' },
 };
 const STOCK_ACT = { p1: '弾丸を撃つ', p2: 'アルカナ発動' };
 
@@ -73,8 +73,9 @@ const HELP = [
   ['目的', '灯火の翼竜の HP を0にするか、上に並ぶ敵の攻撃カード（赤）をすべて破壊すれば勝ち。2人とも倒れたら負け。'],
   ['行動値', 'ターンはなく、2人とも好きな順に操作できる（制限時間なし）。カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治は行動値を消費しない。'],
   ['コスト', '左右の紋章の赤い数字。初期値3で上限なし。カードを使うと、相方のコストが1回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。'],
-  ['弾丸（ルスカー）', '再型で弾倉に1発ずつ装填（最大5）。S で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。'],
-  ['アルカナ（ラティシア）', '占星統治で魔法陣に1つずつ補填（最大5）。↓ で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、次に敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵の行動のあと、魔法陣のアルカナはすべて捨て札に行く。'],
+  ['取り消し', '1P は Shift、2P は BackSpace。敵が次に行動するまでの間、自分の直前の行動を取り消せる（相方がそのあとに行動していたら不可）。'],
+  ['弾丸（ルスカー）', '再型で弾倉に1発ずつ装填（最大5）。W で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。'],
+  ['アルカナ（ラティシア）', '占星統治で魔法陣に1つずつ補填（最大5）。↑ で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、次に敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵の行動のあと、魔法陣のアルカナはすべて捨て札に行く。'],
   ['パリィ', 'パリィカードを使うと「構え」になり、次の敵の攻撃カードでバーが出る。中央で止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。「全員でパリィ」のカードを構えていると2人ともバーに参加する。'],
   ['連携', '金枠のカード。敵が次に行動するまでに2人とも金枠を使うと連携効果が上乗せされる。金枠にパリィが含まれるときは、次の敵の攻撃で2人ともパリィに成功すると発動。'],
   ['敵', 'HP が半分を切ると激昂し、行動値が3になる。防御値は HP より先に削られる盾で、使い切らなかった分は溜まっていく。'],
@@ -1292,7 +1293,7 @@ function drawHint(ctx, w, h, pid) {
   ctx.textBaseline = 'middle';
   ctx.font = font(17);
   const name = `${LABEL[pid]} ${NAME[pid]}`;
-  const keys = `${k.move} 選択　${k.use} 使う　${k.reroll} 引き直し`;
+  const keys = `${k.move} 選択　${k.use} 使う　${k.reroll} 引き直し　${k.undo} 取り消し`;
   ctx.font = font(15, 500);
   const kw = ctx.measureText(keys).width;
   ctx.font = font(17);
@@ -1718,7 +1719,7 @@ function drawRoleBox(ctx, x, y, pid, ready) {
   ctx.font = font(32);
   ctx.fillText(`${LABEL[pid]}  ${NAME[pid]}`, x + 24, y + 33);
   const k = KEYS[pid];
-  [[k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.stock, pid === 'p1' ? '弾倉の弾丸を撃つ' : 'アルカナを発動待ちに'], [k.reroll, '手札を引き直す']]
+  [[k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.stock, pid === 'p1' ? '弾倉の弾丸を撃つ' : 'アルカナを発動待ちに'], [k.reroll, '手札を引き直す'], [k.undo, '直前の行動を取り消す']]
     .forEach(([key, desc], i) => {
       const yy = y + 100 + i * 38;
       rr(ctx, x + 24, yy - 15, 100, 30, 8);
@@ -1752,7 +1753,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 360);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('2人協力・行動値制カードバトル　戦闘モック v0.4', w / 2, 428);
+  ctx.fillText('2人協力・行動値制カードバトル　戦闘モック v0.5', w / 2, 428);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('1台のキーボードを2人で使います', w / 2, 474);
@@ -1820,7 +1821,7 @@ function drawHelp(ctx, w, h) {
   ctx.fillStyle = '#e8eef0';
   for (const pid of PIDS) {
     const k = KEYS[pid];
-    ctx.fillText(`${LABEL[pid]} ${NAME[pid]}　${k.move}：カード選択　${k.use}：使う／パリィを止める　${k.stock}：${STOCK_ACT[pid]}　${k.reroll}：引き直し`, 530, y);
+    ctx.fillText(`${LABEL[pid]} ${NAME[pid]}　${k.move}：カード選択　${k.use}：使う／パリィを止める　${k.stock}：${STOCK_ACT[pid]}　${k.reroll}：引き直し　${k.undo}：取り消し`, 530, y);
     y += 30;
   }
 }
@@ -2071,7 +2072,8 @@ export class View {
       this.trash[pid] = re;
       this.decks[pid] = dk;
       const hint = canvasPlane(640, 40, (ctx, w, h) => drawHint(ctx, w, h, pid), { layer: L.panels });
-      at(hint.mesh, HAND_X[pid][1], 742);
+      // 2P は右の魔法陣の説明と重ならないよう少し左に寄せる
+      at(hint.mesh, HAND_X[pid][1] - (pid === 'p2' ? 60 : 0), 742);
       this.scene.add(hint.mesh);
       this.hints[pid] = hint;
     }
@@ -2678,6 +2680,19 @@ export class View {
     this.killTweens(t.rotation);
     t.rotation.z = 0;
     this.tween(t.rotation, { z: Math.PI * 2 }, 420, 'out').then(() => { t.rotation.z = 0; });
+  }
+
+  // 取り消し: 残っている演出を捨てて、状態をそのまま描き直す
+  undone() {
+    this.queue.length = 0;
+    this.syncDisp();
+    for (const pid of PIDS) for (const s of this.hands[pid]) s.key = null;
+    this.enemySlots.forEach((m, i) => this.drawEnemySlot(i));
+    this.refresh();
+  }
+
+  denyUndo(pid) {
+    this.popText(this.hints[pid].mesh.position.x, 690, '取り消せない', '#d23a3a', 26);
   }
 
   // ---------------- 敵の行動

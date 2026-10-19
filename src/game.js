@@ -52,12 +52,14 @@ export class Game {
     };
     this.avMax = RULES.actionValue;
     this.av = this.avMax;
-    this.enemyPending = false; // 行動値が0になり、敵の行動待ち
+    this.enemyPending = false;
+    this.undoStack = []; // 行動値が0になり、敵の行動待ち
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
     // 連携: 敵が次に行動するまでに出した金枠
     this.combo = { p1: [], p2: [] };
     // パリィを含む連携は、次の通常攻撃で2人ともパリィに成功するまで保留する: [[pid, card], ...]
     this.comboParry = null;
+    this.undoStack = [];
   }
 
   makePlayer(pid) {
@@ -112,6 +114,7 @@ export class Game {
     if (!card) return null;
     const err = this.checkCard(pid, card);
     if (err) return { error: err };
+    this.saveUndo(pid);
     p.cost -= card.cost;
     p.hand[slot] = this.draw(p);
     const ev = [log(`${NAME[pid]}「${card.name}」`)];
@@ -190,6 +193,7 @@ export class Game {
     const cost = CARDS[pid === 'p1' ? 'bullet' : 'arcana'].cost;
     if (pid === 'p1' ? !p.stock.length : !this.nextUnlit()) return { error: pid === 'p1' ? 'noBullet' : 'noArcana' };
     if (p.cost < cost) return { error: 'cost' };
+    this.saveUndo(pid);
     p.cost -= cost;
     const ev = [];
     if (pid === 'p1') {
@@ -242,6 +246,7 @@ export class Game {
 
   reroll(pid) {
     if (!this.canAct(pid)) return null;
+    this.saveUndo(pid);
     const p = this.players[pid];
     for (const c of p.hand) if (c) p.discard.push(c);
     p.hand = p.hand.map(() => null);
@@ -252,6 +257,26 @@ export class Game {
     this.checkOver(ev);
     ev.push({ type: 'cost' });
     return { events: ev };
+  }
+
+  // ---------------- 取り消し
+
+  // 敵が次に行動するまでの間、行動の直前の状態を積んでおく。取り消せるのは一番新しい行動だけで、それが自分の行動のとき
+  saveUndo(pid) {
+    const { round, avMax, av, enemy, players, combo, comboParry } = this;
+    this.undoStack.push({ pid, state: structuredClone({ round, avMax, av, enemy, players, combo, comboParry }) });
+  }
+
+  canUndo(pid) {
+    return this.canAct(pid) && this.undoStack.at(-1)?.pid === pid;
+  }
+
+  undo(pid) {
+    if (!this.canAct(pid)) return null;
+    if (!this.undoStack.length) return { error: 'noUndo' };
+    if (this.undoStack.at(-1).pid !== pid) return { error: 'notYours' };
+    Object.assign(this, this.undoStack.pop().state);
+    return { events: [log(`${NAME[pid]} 取り消し`)] };
   }
 
   // 行動のあと: 相方のコスト+1、敵の行動値-1、崩壊のダメージ

@@ -6,14 +6,17 @@ const KEYMAP = {
   KeyA: ['p1', 'left'],
   KeyD: ['p1', 'right'],
   Space: ['p1', 'use'],
-  KeyW: ['p1', 'reroll'],
-  KeyS: ['p1', 'stock'],
+  KeyW: ['p1', 'stock'],
+  KeyS: ['p1', 'reroll'],
+  ShiftLeft: ['p1', 'undo'],
+  ShiftRight: ['p1', 'undo'],
   ArrowLeft: ['p2', 'left'],
   ArrowRight: ['p2', 'right'],
   Enter: ['p2', 'use'],
   NumpadEnter: ['p2', 'use'],
-  ArrowUp: ['p2', 'reroll'],
-  ArrowDown: ['p2', 'stock'],
+  ArrowUp: ['p2', 'stock'],
+  ArrowDown: ['p2', 'reroll'],
+  Backspace: ['p2', 'undo'],
 };
 
 const view = new View(document.getElementById('app'));
@@ -79,6 +82,14 @@ function playerAction(pid, act) {
       view.denyStock(pid, res.error);
       return;
     }
+  } else if (act === 'undo') {
+    res = game.undo(pid);
+    if (!res) return;
+    if (res.error) {
+      view.denyUndo(pid, res.error);
+      return;
+    }
+    view.undone();
   } else if (act === 'reroll') {
     res = game.reroll(pid);
     if (!res) return;
