@@ -1721,21 +1721,21 @@ function drawRoleBox(ctx, x, y, pid, ready) {
   const k = KEYS[pid];
   [[k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.stock, pid === 'p1' ? '弾倉の弾丸を撃つ' : 'アルカナを発動待ちに'], [k.reroll, '手札を引き直す'], [k.undo, '直前の行動を取り消す']]
     .forEach(([key, desc], i) => {
-      const yy = y + 100 + i * 38;
-      rr(ctx, x + 24, yy - 15, 100, 30, 8);
+      const yy = y + 94 + i * 34;
+      rr(ctx, x + 24, yy - 14, 110, 28, 8);
       ctx.fillStyle = 'rgba(255,255,255,0.14)';
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.font = font(17);
       ctx.textAlign = 'center';
-      ctx.fillText(key, x + 74, yy + 1);
+      ctx.fillText(key, x + 79, yy + 1);
       ctx.textAlign = 'left';
       ctx.font = font(19, 500);
-      ctx.fillText(desc, x + 140, yy + 1);
+      ctx.fillText(desc, x + 150, yy + 1);
     });
   ctx.font = font(18);
   ctx.fillStyle = PLIGHT[pid];
-  ctx.fillText(pid === 'p1' ? '弾丸で翼竜の HP を削る' : 'アルカナで翼竜のカードを壊す', x + 24, y + 266);
+  ctx.fillText(pid === 'p1' ? '弾丸で翼竜の HP を削る' : 'アルカナで翼竜のカードを壊す', x + 24, y + 276);
   ctx.textAlign = 'right';
   ctx.font = font(20);
   ctx.fillStyle = ready ? '#8ef0b0' : 'rgba(255,255,255,0.65)';
@@ -2399,7 +2399,7 @@ export class View {
         this.drawPanel(e.pid);
         this.refreshHands();
         const em = EMBLEM[e.pid];
-        this.popText(em.x - 72, em.top - 130, `+${e.amount}`, '#e02a24', 36);
+        this.popText(em.x - 30, em.top - 130, `コスト+${e.amount}`, '#e02a24', 30);
         return;
       }
       case 'av':
