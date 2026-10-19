@@ -74,12 +74,14 @@ export class Game {
     return p;
   }
 
+  // 引くたびに山札からランダムに1枚選ぶ（取り消してから引き直しても、同じカードが来るとは限らない）
   draw(p) {
     if (!p.deck.length) {
-      p.deck = shuffle(p.discard, this.rng);
+      p.deck = p.discard;
       p.discard = [];
     }
-    return p.deck.pop() ?? null;
+    if (!p.deck.length) return null;
+    return p.deck.splice(Math.floor(this.rng() * p.deck.length), 1)[0];
   }
 
   alive(pid) { return this.players[pid].hp > 0; }
