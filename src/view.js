@@ -2399,7 +2399,7 @@ export class View {
         this.drawPanel(e.pid);
         this.refreshHands();
         const em = EMBLEM[e.pid];
-        this.popText(em.x - 72, em.top - 130, `+${e.amount}`, '#e02a24', 36);
+        this.popText(em.x - 30, em.top - 130, `コスト+${e.amount}`, '#e02a24', 30);
         return;
       }
       case 'av':
