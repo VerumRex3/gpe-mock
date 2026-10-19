@@ -36,7 +36,7 @@ export const ENCHANT = {
 // free: 行動値を消費しない（相方のコストも回復しない）
 // hits: 敵へのダメージ列 / block: パリィの防御値 [バーの端, 中央] / success: パリィ成功時効果
 // blockAll: 構えていると味方全員がバーに参加し、それぞれ自分の止めた位置で決まる防御値を得る
-// fx: 発動時効果 / comboFx: 連携時効果（combo: true の金枠カード）
+// fx: 発動時効果
 export const CARDS = {
   // ---- 1P ルスカー ----
   bullet: { name: '弾丸', owner: 'p1', type: 'bullet', cost: 1, dmg: 5, text: '敵に5ダメージ\n（手札からも撃てる）' },
@@ -64,8 +64,8 @@ export const CARDS = {
     text: '防御0〜4\n成功：反撃8ダメージ',
   },
   crowClaw: {
-    name: '渡鴉の爪', owner: 'p1', type: 'attack', combo: true, cost: 2, hits: [8], comboFx: { hits: [12] },
-    text: '敵に8ダメージ', comboText: '追加12ダメージ',
+    name: '渡鴉の爪', owner: 'p1', type: 'attack', cost: 2, hits: [8],
+    text: '敵に8ダメージ',
   },
 
   // ---- 2P ラティシア ----
@@ -93,13 +93,13 @@ export const CARDS = {
     text: '全員でパリィ\n各自に防御0〜4\n自分成功でルスカーの\n次の攻撃+5',
   },
   resonance: {
-    name: '共鳴', owner: 'p2', type: 'buff', combo: true, cost: 2, fx: { healAll: 6 }, comboFx: { hits: [16] },
-    text: '味方全員のHP+6', comboText: '敵に16ダメージ',
+    name: '共鳴', owner: 'p2', type: 'buff', cost: 2, fx: { healAll: 6 },
+    text: '味方全員のHP+6',
   },
   echoShield: {
-    name: '共鳴の盾', owner: 'p2', type: 'parry', combo: true, cost: 2, block: [0, 5], blockAll: true,
-    success: { healAll: 4 }, comboFx: { counter: 12, healAll: 6 },
-    text: '全員でパリィ\n各自に防御0〜5\n自分成功で全員HP+4', comboText: '2人とも成功で反撃12・HP+6',
+    name: '共鳴の盾', owner: 'p2', type: 'parry', cost: 2, block: [0, 5], blockAll: true,
+    success: { healAll: 4 },
+    text: '全員でパリィ\n各自に防御0〜5\n自分成功で全員HP+4',
   },
 };
 

@@ -53,16 +53,14 @@ function section(title, lead, tiles) {
 }
 
 const playerCard = (id) => ({ id, ...CARDS[id], boons: [], aspect: null });
-const cardOpts = { affordable: true, costOk: true, inactive: false, comboHint: false };
+const cardOpts = { affordable: true, costOk: true, inactive: false };
 
 function deckTiles(pid) {
   const counts = new Map();
   for (const id of DECKS[pid]) counts.set(id, (counts.get(id) ?? 0) + 1);
   return [...counts].map(([id, n]) => {
     const card = playerCard(id);
-    const notes = [];
-    if (card.combo) notes.push('連携（金枠）');
-    return tile(canvasFor(190, 300, 200, (ctx, w, h) => drawCard(ctx, w, h, card, cardOpts)), n, notes.join('・'));
+    return tile(canvasFor(190, 300, 200, (ctx, w, h) => drawCard(ctx, w, h, card, cardOpts)), n);
   });
 }
 

@@ -52,13 +52,8 @@ export class Game {
     };
     this.avMax = RULES.actionValue;
     this.av = this.avMax;
-    this.enemyPending = false;
-    this.undoStack = []; // 行動値が0になり、敵の行動待ち
+    this.enemyPending = false; // 行動値が0になり、敵の行動待ち
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
-    // 連携: 敵が次に行動するまでに出した金枠
-    this.combo = { p1: [], p2: [] };
-    // パリィを含む連携は、次の通常攻撃で2人ともパリィに成功するまで保留する: [[pid, card], ...]
-    this.comboParry = null;
     this.undoStack = [];
   }
 
@@ -88,7 +83,6 @@ export class Game {
   alivePids() { return PIDS.filter((pid) => this.alive(pid)); }
   other(pid) { return pid === 'p1' ? 'p2' : 'p1'; }
   canAct(pid) { return !this.over && !this.enemyPending && this.alive(pid); }
-  hasComboPlayed(pid) { return this.combo[pid].length > 0; }
 
   // 弾倉の次弾 / 魔法陣でまだ発動していない最初のアルカナ / 属性を付けられる最初のアルカナ
   topBullet() { return this.players.p1.stock.at(-1) ?? null; }
@@ -121,7 +115,6 @@ export class Game {
     p.hand[slot] = this.draw(p);
     const ev = [log(`${NAME[pid]}「${card.name}」`)];
     this.resolveCard(pid, card, ev);
-    if (card.combo) this.addCombo(pid, card, ev);
     if (!card.free) this.afterAction(pid, ev);
     this.checkOver(ev);
     ev.push({ type: 'cost' });
@@ -167,25 +160,6 @@ export class Game {
         this.applyFx(pid, card.fx, ev);
     }
     p.discard.push(card);
-  }
-
-  // 敵が次に行動するまでに2人とも金枠を出すと連携。金枠にパリィが含まれるときは次の攻撃まで保留
-  addCombo(pid, card, ev) {
-    this.combo[pid].push(card);
-    if (!PIDS.every((q) => this.hasComboPlayed(q))) {
-      ev.push({ type: 'comboWait', pid });
-      return;
-    }
-    const cards = PIDS.flatMap((q) => this.combo[q].map((c) => [q, c]));
-    this.combo = { p1: [], p2: [] };
-    const names = cards.map(([, c]) => c.name);
-    if (cards.some(([, c]) => c.type === 'parry')) {
-      this.comboParry = [...(this.comboParry ?? []), ...cards];
-      ev.push({ type: 'comboArmed', names }, log('連携成立！ 次の攻撃で2人ともパリィ成功で発動'));
-      return;
-    }
-    ev.push({ type: 'combo', parry: false, names }, log(`連携発動！「${names.join('」×「')}」`));
-    for (const [q, c] of cards) this.applyFx(q, c.comboFx, ev);
   }
 
   // 弾倉・魔法陣を使う。ルスカーは次弾を撃ち、ラティシアは次のアルカナを発動待ちにする
@@ -265,8 +239,8 @@ export class Game {
 
   // 敵が次に行動するまでの間、行動の直前の状態を積んでおく。取り消せるのは一番新しい行動だけで、それが自分の行動のとき
   saveUndo(pid) {
-    const { round, avMax, av, enemy, players, combo, comboParry } = this;
-    this.undoStack.push({ pid, state: structuredClone({ round, avMax, av, enemy, players, combo, comboParry }) });
+    const { round, avMax, av, enemy, players } = this;
+    this.undoStack.push({ pid, state: structuredClone({ round, avMax, av, enemy, players }) });
   }
 
   canUndo(pid) {
@@ -342,7 +316,6 @@ export class Game {
       p.discard.push(...p.armed);
       p.armed = [];
       p.block = 0;
-      this.comboParry = null;
       ev.push({ type: 'down', pid }, log(`${NAME[pid]} 戦闘不能`));
     }
   }
@@ -398,21 +371,23 @@ export class Game {
     return this.enemy.resist ? Math.floor(base / 2) : base;
   }
 
-  // 発動待ちのアルカナが、敵の使ったカードに当たる。HPが0になったカードは破壊され、その行動も止まる
+  // 敵の行動ごとに、発動待ちのアルカナが番号の若い順に1つだけ、敵の使ったカードに当たって捨て札に行く
+  // 残りのアルカナは魔法陣に残り、番号が1つずつ繰り上がる。HPが0になったカードは破壊され、その行動も止まる
   arcanaStrike(slot) {
     const ev = [];
     const card = this.enemy.cards[slot];
     const p2 = this.players.p2;
-    for (const s of p2.stock) {
-      if (!s.lit || card.broken) continue;
-      const match = s.card.aspect === card.kind;
-      const dmg = s.card.dmg + (match ? RULES.arcanaAttrBonus : 0);
-      card.hp = Math.max(0, card.hp - dmg);
-      ev.push({ type: 'arcanaHit', slot, amount: dmg, match, hp: card.hp, index: p2.stock.indexOf(s) });
-      if (card.hp === 0) {
-        card.broken = true;
-        ev.push({ type: 'broken', slot, card }, log(`「${card.name}」を破壊！`));
-      }
+    const index = p2.stock.findIndex((s) => s.lit);
+    if (index < 0) return ev;
+    const [s] = p2.stock.splice(index, 1);
+    p2.discard.push(s.card);
+    const match = s.card.aspect === card.kind;
+    const dmg = s.card.dmg + (match ? RULES.arcanaAttrBonus : 0);
+    card.hp = Math.max(0, card.hp - dmg);
+    ev.push({ type: 'arcanaHit', slot, amount: dmg, match, hp: card.hp, index });
+    if (card.hp === 0) {
+      card.broken = true;
+      ev.push({ type: 'broken', slot, card }, log(`「${card.name}」を破壊！`));
     }
     this.checkOver(ev);
     return ev;
@@ -423,9 +398,8 @@ export class Game {
   // 全員向けの盾（blockAll）が構えられているか
   sharedParry() { return this.armedPids().some((pid) => this.players[pid].armed.some((c) => c.blockAll)); }
 
-  // バーに参加する人。連携パリィの保留中か全員向けの盾があるときは、パリィカードを出していない人も参加する
+  // バーに参加する人。全員向けの盾があるときは、パリィカードを出していない人も参加する
   parryPids() {
-    if (this.comboParry && this.alivePids().length === PIDS.length) return [...PIDS];
     if (this.sharedParry()) return this.alivePids();
     return this.armedPids();
   }
@@ -447,16 +421,6 @@ export class Game {
       for (const card of this.players[pid].armed) {
         for (const t of card.blockAll ? pids : [pid]) this.gainBlock(t, blockFor(card, t), ev);
         if (success[pid]) this.applyFx(pid, card.success, ev);
-      }
-    }
-    if (this.comboParry) {
-      const comboCards = this.comboParry;
-      this.comboParry = null;
-      if (PIDS.every((pid) => success[pid])) {
-        ev.push({ type: 'combo', parry: true, names: comboCards.map(([, c]) => c.name) }, log('連携パリィ成功！'));
-        for (const [pid, c] of comboCards) this.applyFx(pid, c.comboFx, ev);
-      } else {
-        ev.push(log('連携パリィ失敗…'));
       }
     }
     for (const pid of pids) {
@@ -498,7 +462,7 @@ export class Game {
     return [p1.hp >= p2.hp ? 'p1' : 'p2'];
   }
 
-  // 敵の行動の締め: 崩壊のダメージ（ここで切れる）、魔法陣のアルカナはすべて捨て札、両者のコスト+1、行動値を戻す
+  // 敵の行動の締め: 崩壊のダメージ（ここで切れる）、両者のコスト+1、行動値を戻す
   endEnemyAction() {
     const ev = [];
     const e = this.enemy;
@@ -507,16 +471,9 @@ export class Game {
       e.decay = 0;
       ev.push({ type: 'status', target: 'enemy' });
     }
-    const p2 = this.players.p2;
-    if (p2.stock.length) {
-      p2.discard.push(...p2.stock.map((s) => s.card));
-      p2.stock = [];
-      ev.push({ type: 'stock', pid: 'p2', clear: true });
-    }
     this.checkOver(ev);
     if (this.over) return ev;
     for (const pid of this.alivePids()) this.gainCost(pid, 1, ev);
-    this.combo = { p1: [], p2: [] };
     this.round++;
     this.av = this.avMax;
     this.enemyPending = false;

@@ -75,9 +75,8 @@ const HELP = [
   ['コスト', '左右の紋章の赤い数字。初期値3で上限なし。カードを使うと、相方のコストが1回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。'],
   ['取り消し', '1P は Shift、2P は BackSpace。敵が次に行動するまでの間、自分の直前の行動を取り消せる（相方がそのあとに行動していたら不可）。'],
   ['弾丸（ルスカー）', '再型で弾倉に1発ずつ装填（最大5）。W で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。'],
-  ['アルカナ（ラティシア）', '占星統治で魔法陣に1つずつ補填（最大5）。↑ で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、次に敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵の行動のあと、魔法陣のアルカナはすべて捨て札に行く。'],
+  ['アルカナ（ラティシア）', '占星統治で魔法陣に1つずつ補填（最大5）。↑ で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵が行動するたびに、発動待ちのアルカナが番号の若い順に1つだけ当たって捨て札に行き、残りは番号が繰り上がって魔法陣に残る。'],
   ['パリィ', 'パリィカードを使うと「構え」になり、次の敵の攻撃カードでバーが出る。中央で止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。「全員でパリィ」のカードを構えていると2人ともバーに参加する。'],
-  ['連携', '金枠のカード。敵が次に行動するまでに2人とも金枠を使うと連携効果が上乗せされる。金枠にパリィが含まれるときは、次の敵の攻撃で2人ともパリィに成功すると発動。'],
   ['敵', 'HP が半分を切ると激昂し、行動値が3になる。防御値は HP より先に削られる盾で、使い切らなかった分は溜まっていく。'],
 ];
 
@@ -783,18 +782,6 @@ function drawArcanaShape(ctx, cx, cy, s, color = '#ffffff', eye = '#1d1530') {
   ctx.restore();
 }
 
-function drawChain(ctx, cx, cy, color) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(-0.6);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3.5;
-  rr(ctx, -15, -6, 17, 12, 6);
-  ctx.stroke();
-  rr(ctx, -2, -6, 17, 12, 6);
-  ctx.stroke();
-  ctx.restore();
-}
 
 const iconOf = (card) => (card.type === 'load' ? `${card.owner === 'p1' ? 'bullet' : 'arcana'}+` : card.type);
 
@@ -823,17 +810,17 @@ export function drawCard(ctx, w, h, card, o) {
     return;
   }
   const typeCol = C[card.type];
-  // 白いカード。金枠（連携）は外周を金にする
+  // 白いカード
   rr(ctx, 2, 2, w - 4, h - 4, 12);
-  ctx.fillStyle = card.combo ? C.gold : '#ffffff';
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
-  rr(ctx, card.combo ? 8 : 4, card.combo ? 8 : 4, w - (card.combo ? 16 : 8), h - (card.combo ? 16 : 8), 9);
+  rr(ctx, 4, 4, w - 8, h - 8, 9);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.lineWidth = 2;
   ctx.strokeStyle = '#1a1a1a';
   ctx.stroke();
-  const ix = card.combo ? 8 : 4;
+  const ix = 4;
   // 名前の帯（種類の色）
   ctx.save();
   rr(ctx, ix, ix, w - ix * 2, h - ix * 2, 9);
@@ -844,7 +831,6 @@ export function drawCard(ctx, w, h, card, o) {
   ctx.fillRect(0, 50, w, 106);
   ctx.restore();
   drawIcon(ctx, iconOf(card), w / 2, 100, 1.25, typeCol);
-  if (card.combo) drawChain(ctx, w - 30, 136, '#9a6f08');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
@@ -864,13 +850,13 @@ export function drawCard(ctx, w, h, card, o) {
   ctx.font = font(24);
   ctx.fillText(String(card.cost), 27, 28);
   // 種別
-  const label = TYPE_LABEL[card.type] + (card.combo ? '・連携' : '');
+  const label = TYPE_LABEL[card.type];
   ctx.font = font(13);
   const lw = ctx.measureText(label).width + 20;
   rr(ctx, w / 2 - lw / 2, 145, lw, 23, 11.5);
-  ctx.fillStyle = card.combo ? C.gold : typeCol;
+  ctx.fillStyle = typeCol;
   ctx.fill();
-  ctx.fillStyle = card.combo ? '#3a2a00' : '#ffffff';
+  ctx.fillStyle = '#ffffff';
   ctx.fillText(label, w / 2, 157);
   // 効果文
   ctx.textAlign = 'left';
@@ -882,24 +868,10 @@ export function drawCard(ctx, w, h, card, o) {
     ctx.fillText(line, 15, y);
     y += 20;
   }
-  if (card.comboText) {
-    ctx.font = font(13);
-    ctx.fillStyle = '#8a5d00';
-    for (const line of wrapLines(ctx, `連携：${card.comboText}`, w - 30)) {
-      ctx.fillText(line, 15, y + 4);
-      y += 17;
-    }
-  }
   if (!o.affordable || o.inactive) {
     rr(ctx, 2, 2, w - 4, h - 4, 12);
     ctx.fillStyle = o.inactive ? 'rgba(10, 10, 14, 0.35)' : 'rgba(10, 10, 14, 0.5)';
     ctx.fill();
-  }
-  if (o.comboHint) {
-    rr(ctx, 3, 3, w - 6, h - 6, 12);
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = '#ffe07a';
-    ctx.stroke();
   }
 }
 
@@ -907,7 +879,7 @@ export function drawCard(ctx, w, h, card, o) {
 function drawMiniCard(ctx, w, h, card) {
   const typeCol = C[card.type];
   rr(ctx, 1, 1, w - 2, h - 2, 9);
-  ctx.fillStyle = card.combo ? C.gold : PCOL[card.owner];
+  ctx.fillStyle = PCOL[card.owner];
   ctx.fill();
   rr(ctx, 5, 5, w - 10, h - 10, 6);
   ctx.fillStyle = C.cream;
@@ -928,14 +900,13 @@ function drawMiniCard(ctx, w, h, card) {
   while (ctx.measureText(card.name).width > w - 14 && fs > 10) ctx.font = font(--fs);
   ctx.fillText(card.name, w / 2, 21);
   drawIcon(ctx, iconOf(card), w / 2, 60, 0.85, mix(typeCol, '#000000', 0.12));
-  if (card.combo) drawChain(ctx, w - 18, 76, '#9a6f08');
-  const label = TYPE_LABEL[card.type] + (card.combo ? '・連携' : '');
+  const label = TYPE_LABEL[card.type];
   ctx.font = font(12);
   const lw = ctx.measureText(label).width + 14;
   rr(ctx, w / 2 - lw / 2, 92, lw, 20, 10);
-  ctx.fillStyle = card.combo ? C.gold : typeCol;
+  ctx.fillStyle = typeCol;
   ctx.fill();
-  ctx.fillStyle = card.combo ? '#3a2a00' : '#ffffff';
+  ctx.fillStyle = '#ffffff';
   ctx.fillText(label, w / 2, 102.5);
 }
 
@@ -1197,8 +1168,6 @@ function drawCharPanel(ctx, w, h, pid, d, p, game) {
   const chips = [];
   // 幅に収まらない分は落ちるので、重要なものから並べる
   if (d.hp <= 0) chips.push(['戦闘不能', '#555555']);
-  if (game.comboParry && d.hp > 0) chips.push(['連携パリィ待ち', C.gold]);
-  else if (game.hasComboPlayed(pid)) chips.push(['連携待ち', C.gold]);
   if (p.armed.length) chips.push([p.armed.length > 1 ? `構え×${p.armed.length}` : '構え', C.parry]);
   if (p.rapid) chips.push([p.rapid > 1 ? `速射×${p.rapid}` : '速射', C.bullet]);
   if (p.nextBonus) chips.push([`次の攻撃+${p.nextBonus}`, C.buff]);
@@ -1273,17 +1242,6 @@ function drawEnemyName(ctx, w, h, e) {
   ctx.font = font(14);
   const total = chips.reduce((a, [t]) => a + ctx.measureText(t).width + 22, 0);
   drawChips(ctx, chips, Math.max(0, (w - total) / 2), 48, w);
-}
-
-// 連携の成立状況（金枠を使った人がいるときだけ）
-function drawComboPill(ctx, w, h, game) {
-  const has = PIDS.filter((pid) => game.hasComboPlayed(pid));
-  if (game.comboParry) {
-    drawPill(ctx, w, h, '連携成立：次の敵の攻撃で2人ともパリィ成功で発動', { bg: C.gold, color: '#3a2a00', size: 17 });
-  } else if (has.length === 1) {
-    const other = PIDS.find((pid) => pid !== has[0]);
-    drawPill(ctx, w, h, `連携待ち：敵が動く前に${NAME[other]}も金枠を使うと成立`, { bg: 'rgba(40, 32, 10, 0.88)', color: C.gold, size: 17 });
-  }
 }
 
 // 手札の上（地面の帯）: 名前と操作
@@ -1753,7 +1711,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 360);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('2人協力・行動値制カードバトル　戦闘モック v0.5', w / 2, 428);
+  ctx.fillText('2人協力・行動値制カードバトル　戦闘モック v0.6', w / 2, 428);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('1台のキーボードを2人で使います', w / 2, 474);
@@ -1947,7 +1905,6 @@ export class View {
     this.buildCharacters();
     this.buildPanels();
     this.buildHands();
-    this.buildCombo();
     this.buildParry();
     this.buildOverlays();
   }
@@ -2097,12 +2054,6 @@ export class View {
     }
   }
 
-  buildCombo() {
-    this.comboPlane = canvasPlane(640, 34, null, { layer: L.field });
-    at(this.comboPlane.mesh, 790, 210);
-    this.scene.add(this.comboPlane.mesh);
-  }
-
   buildParry() {
     const group = new THREE.Group();
     group.visible = false;
@@ -2239,7 +2190,6 @@ export class View {
     for (const pid of PIDS) this.drawCharPanel(pid);
     this.drawEnemyPanel();
     this.drawStocks();
-    this.drawCombo();
     this.drawAction();
     this.roundPlane.draw((ctx, w, h) => drawRound(ctx, w, h, this.game.round));
   }
@@ -2247,11 +2197,6 @@ export class View {
   drawAction() {
     this.phasePill.draw((ctx, w, h) => drawPhasePill(ctx, w, h, this.phase));
     this.actionPlane.draw((ctx, w, h) => drawActionBar(ctx, w, h, this.game));
-  }
-
-  drawCombo() {
-    this.comboPlane.mesh.visible = this.phase === 'player';
-    this.comboPlane.draw((ctx, w, h) => drawComboPill(ctx, w, h, this.game));
   }
 
   drawStocks() {
@@ -2277,8 +2222,6 @@ export class View {
     const g = this.game;
     for (const pid of PIDS) {
       const p = g.players[pid];
-      // 相方だけが金枠を使っているとき、自分の金枠を光らせる
-      const partnerWaiting = g.hasComboPlayed(g.other(pid)) && !g.hasComboPlayed(pid);
       p.hand.forEach((card, i) => {
         const s = this.hands[pid][i];
         const err = card ? g.checkCard(pid, card) : null;
@@ -2286,9 +2229,8 @@ export class View {
           affordable: !err,
           costOk: !card || card.cost <= p.cost,
           inactive: this.phase !== 'player' || !g.canAct(pid),
-          comboHint: !!(partnerWaiting && card?.combo),
         };
-        const key = `${card?.uid}|${card?.boons.length}|${card?.aspect}|${o.affordable}|${o.costOk}|${o.inactive}|${o.comboHint}`;
+        const key = `${card?.uid}|${card?.boons.length}|${card?.aspect}|${o.affordable}|${o.costOk}|${o.inactive}`;
         if (s.key === key) return;
         s.key = key;
         s.card.draw((ctx, w, h) => drawCard(ctx, w, h, card, o));
@@ -2414,7 +2356,6 @@ export class View {
         if (e.ench) this.popText(sp.x, sp.top - 120, `次弾に${ENCHANT[e.ench].name}`, '#ffe48a', 30);
         if (e.attr) this.popText(sp.x, sp.top - 120, `${KIND_LABEL[e.attr]}属性`, '#ffe48a', 30);
         if (e.lit) this.popText(sp.x, sp.top - 120, '発動待ち', '#ffe9a8', 30);
-        if (e.clear) this.popText(sp.x, sp.top - 120, '魔法陣は捨て札へ', '#cfc6ee', 26);
         await this.wait(120);
         return;
       }
@@ -2434,11 +2375,6 @@ export class View {
           await this.banner('破壊！', `「${e.card.name}」は使えなくなった`, '#ff9a7a', 600);
         }
         return;
-      case 'comboWait':
-        this.drawCombo();
-        this.drawCharPanel(e.pid);
-        this.refreshHands();
-        return;
       case 'status': {
         if (e.target === 'enemy') this.drawEnemyPanel();
         else if (e.target) this.drawCharPanel(e.target);
@@ -2455,15 +2391,6 @@ export class View {
         this.popText(p.x, p.top - 40, '構え', C.block, 34);
         return;
       }
-      case 'combo':
-        this.drawCombo();
-        await this.comboFx(e);
-        return;
-      case 'comboArmed':
-        for (const pid of PIDS) this.drawCharPanel(pid);
-        this.drawCombo();
-        await this.banner('連携成立', '次の敵の攻撃で2人ともパリィ成功 → 連携パリィ', C.gold, 900);
-        return;
       case 'down':
         this.drawCharPanel(e.pid);
         await this.tween(this.chars[e.pid].root.rotation, { z: e.pid === 'p1' ? 0.12 : -0.12 }, 300, 'out');
@@ -2568,16 +2495,6 @@ export class View {
     b.mesh.visible = false;
   }
 
-  async comboFx(e) {
-    this.flash('#ffe9a8', 0.7);
-    for (const pid of PIDS) {
-      const p = this.targetPoint(pid);
-      this.ring(p.x, p.top + 40, C.gold);
-      this.pulse(pid);
-    }
-    await this.banner(e.parry ? '連携パリィ！' : '連携発動！', e.names.join(' × '), C.gold, 650);
-  }
-
   // 弾丸: 弾倉（またはルスカー）から翼竜へ飛ばす
   async shotFx(e) {
     const from = e.fromStock ? { x: MAG.x + 60, top: MAG.top - MAG.h / 2 + 22 } : this.targetPoint('p1');
@@ -2597,13 +2514,14 @@ export class View {
     disposeMesh(b.mesh);
   }
 
-  // アルカナ: 魔法陣の位置から、敵が使っているカードへ飛ばす
+  // アルカナ: 魔法陣の位置から、敵が使っているカードへ飛ばす（当たったアルカナは魔法陣から抜けて番号が繰り上がる）
   async arcanaFx(e) {
     const em = EMBLEM.p2;
     const [nx, ny] = circleNode(e.index, em.x, em.top);
     const a = canvasPlane(70, 70, (ctx) => drawArcanaShape(ctx, 35, 35, 1, '#fff3cf'), { layer: L.reveal + 2 });
     at(a.mesh, nx, ny);
     this.scene.add(a.mesh);
+    this.drawStocks();
     await this.tween(a.mesh.position, { x: REVEAL.x, y: H - REVEAL.top }, 280, 'in');
     disposeMesh(a.mesh);
     if (this.reveal) {
@@ -2760,11 +2678,8 @@ export class View {
   async runParry(pids) {
     const ui = this.parryUi;
     ui.band.draw((ctx, w, h) => drawParryBand(ctx, w, h, pids));
-    const combo = !!this.game.comboParry;
-    let ready = 'パリィ準備…';
-    if (combo) ready = 'パリィ準備… 2人とも成功で連携パリィ！';
-    else if (this.game.sharedParry()) ready = 'パリィ準備… 全員でパリィ！';
-    ui.title.draw((ctx, w, h) => drawCenterText(ctx, w, h, ready, combo ? C.gold : '#ffffff', 30));
+    const ready = this.game.sharedParry() ? 'パリィ準備… 全員でパリィ！' : 'パリィ準備…';
+    ui.title.draw((ctx, w, h) => drawCenterText(ctx, w, h, ready, '#ffffff', 30));
     const st = { pids, active: false, acc: {}, m: {}, finish: null };
     for (const pid of PIDS) {
       st.m[pid] = { pos: pid === 'p1' ? 0 : 1, dir: pid === 'p1' ? 1 : -1, stopped: !pids.includes(pid) };
