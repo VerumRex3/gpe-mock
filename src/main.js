@@ -17,17 +17,43 @@ const KEYMAP = {
   ArrowUp: ['p2', 'stock'],
   ArrowDown: ['p2', 'reroll'],
   Backspace: ['p2', 'undo'],
+  Digit1: ['item', 'item', 0],
+  Digit2: ['item', 'item', 1],
+  Digit3: ['item', 'item', 2],
+};
+// 一人モードの戦闘中。手札は 'solo'、弾丸（W）とアルカナ（E）はキャラを直接指す
+const SOLO_KEYMAP = {
+  KeyA: ['solo', 'left'],
+  KeyD: ['solo', 'right'],
+  ArrowLeft: ['solo', 'left'],
+  ArrowRight: ['solo', 'right'],
+  Space: ['solo', 'use'],
+  Enter: ['solo', 'use'],
+  NumpadEnter: ['solo', 'use'],
+  KeyW: ['p1', 'stock'],
+  ArrowUp: ['p1', 'stock'],
+  KeyE: ['p2', 'stock'],
+  KeyS: ['solo', 'reroll'],
+  ArrowDown: ['solo', 'reroll'],
+  ShiftLeft: ['solo', 'undo'],
+  ShiftRight: ['solo', 'undo'],
+  Backspace: ['solo', 'undo'],
+  Digit1: ['solo', 'item', 0],
+  Digit2: ['solo', 'item', 1],
+  Digit3: ['solo', 'item', 2],
 };
 
 const view = new View(document.getElementById('app'));
 await view.init();
 document.getElementById('boot')?.remove();
 
-const cursor = { p1: 0, p2: 0 };
+const cursor = { p1: 0, p2: 0, solo: 0 };
 const startReady = { p1: false, p2: false };
 // title / intro / player / enemy / parry / ending / result
 let mode = 'title';
-let game = new Game();
+// ?solo を付けると一人モードで始まる（タイトルで切り替えられる）
+let playMode = new URLSearchParams(location.search).has('solo') ? 'solo' : 'duo';
+let game = new Game(Math.random, playMode);
 
 view.bindGame(game, cursor);
 view.setPhase('title');
@@ -39,30 +65,60 @@ window.addEventListener('keydown', (e) => {
     view.toggleHelp();
     return;
   }
-  const k = KEYMAP[e.code];
+  const inBattle = mode !== 'title' && mode !== 'result';
+  const k = (inBattle && game.solo ? SOLO_KEYMAP : KEYMAP)[e.code];
   if (!k) return;
   e.preventDefault();
   if (e.repeat || view.helpOpen) return;
-  onAction(k[0], k[1]);
+  onAction(...k);
 });
 
-function onAction(pid, act) {
+function onAction(pid, act, arg) {
   if (mode === 'title' || mode === 'result') {
+    if (act === 'left' || act === 'right') return switchMode();
     if (act !== 'use') return;
+    if (playMode === 'solo') return startBattle();
     startReady[pid] = true;
     view.updateStartReady(startReady);
     if (startReady.p1 && startReady.p2) startBattle();
   } else if (mode === 'parry') {
-    if (act === 'use') view.parryStop(pid);
+    // 一人モードのバーは 1P のマーカー1本
+    if (act === 'use') view.parryStop(game.solo ? 'p1' : pid);
   } else if (mode === 'player') {
-    playerAction(pid, act);
+    playerAction(pid, act, arg);
   }
 }
 
-function playerAction(pid, act) {
+// タイトル・リザルトで一人／二人を切り替える。背景の盤面もそのモードの配置で作り直す
+function switchMode() {
+  playMode = playMode === 'solo' ? 'duo' : 'solo';
+  startReady.p1 = startReady.p2 = false;
+  if (mode === 'title') {
+    game = new Game(Math.random, playMode);
+    view.bindGame(game, cursor);
+    view.showTitle(startReady);
+  } else {
+    view.setSolo(playMode === 'solo');
+    view.updateStartReady(startReady);
+  }
+}
+
+function playerAction(pid, act, arg) {
+  if (act === 'item') {
+    const res = game.useItem(arg);
+    if (!res) return;
+    if (res.error) {
+      view.denyItem(arg);
+      return;
+    }
+    view.enqueue(res.events);
+    view.refresh();
+    return;
+  }
   if (!game.canAct(pid)) return;
   if (act === 'left' || act === 'right') {
-    cursor[pid] = (cursor[pid] + (act === 'left' ? 2 : 1)) % 3;
+    const n = game.holder(pid).hand.length;
+    cursor[pid] = (cursor[pid] + (act === 'left' ? n - 1 : 1)) % n;
     return;
   }
   let res = null;
@@ -119,12 +175,13 @@ async function afterPlayerAction() {
 async function startBattle() {
   mode = 'intro';
   startReady.p1 = startReady.p2 = false;
-  game = new Game();
-  cursor.p1 = cursor.p2 = 0;
+  game = new Game(Math.random, playMode);
+  cursor.p1 = cursor.p2 = cursor.solo = 0;
   view.bindGame(game, cursor);
   view.setPhase('intro');
   await view.hideOverlay();
-  await view.banner('BATTLE START', '2人で自由に行動 ― カードを使うたびに敵の行動値が減る', '#e8fbff', 700);
+  const sub = game.solo ? '2人のカードを1人で使う ― カードを使うたびに敵の行動値が減る' : '2人で自由に行動 ― カードを使うたびに敵の行動値が減る';
+  await view.banner('BATTLE START', sub, '#e8fbff', 700);
   mode = 'player';
   view.setPhase('player');
 }
@@ -143,7 +200,10 @@ async function enemyPhase() {
     if (card.kind === 'attack' && game.parryPids().length) {
       mode = 'parry';
       view.setPhase('parry');
-      const accs = await view.runParry(game.parryPids());
+      const pids = game.parryPids();
+      // 一人モードはバー1本で止め、その位置を構えている全員に使う
+      let accs = await view.runParry(game.solo ? ['p1'] : pids);
+      if (game.solo) accs = Object.fromEntries(pids.map((pid) => [pid, accs.p1 ?? 0]));
       mode = 'enemy';
       view.setPhase('enemy');
       view.enqueue(game.resolveParry(accs));

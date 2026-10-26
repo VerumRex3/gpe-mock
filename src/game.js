@@ -1,6 +1,6 @@
 // 戦闘ルール本体。描画には依存しない（node でもそのまま動く）
 // 各操作は「起きたこと」をイベント配列で返し、描画側がそれを順に演出する
-import { RULES, CARDS, DECKS, ENEMY, ENCHANT, KIND_LABEL } from './data.js';
+import { RULES, CARDS, DECKS, ENEMY, ENCHANT, KIND_LABEL, ITEMS } from './data.js';
 
 export const PIDS = ['p1', 'p2'];
 export const LABEL = { p1: '1P', p2: '2P' };
@@ -39,9 +39,13 @@ export function describeEnemyCard(card, dmg = card.dmg) {
   return '';
 }
 
+// mode: 'duo' = 2人でそれぞれの手札を操作 / 'solo' = 1人で2人分の混ざった手札（shared）を操作
+// 手札の持ち主は 'p1' / 'p2'（二人モード）か 'solo'（一人モード）。カードの効果やコストはカードの owner のキャラに付く
 export class Game {
-  constructor(rng = Math.random) {
+  constructor(rng = Math.random, mode = 'duo') {
     this.rng = rng;
+    this.mode = mode;
+    this.solo = mode === 'solo';
     this.round = 1; // 敵が行動するたびに進む
     this.over = null; // 'win' | 'lose'
     this.winBy = null; // 'hp' | 'cards'
@@ -54,6 +58,8 @@ export class Game {
     this.av = this.avMax;
     this.enemyPending = false; // 行動値が0になり、敵の行動待ち
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
+    this.shared = this.solo ? this.makePile([...DECKS.p1, ...DECKS.p2], RULES.soloHandSize) : null;
+    this.items = ITEMS.map((it) => ({ ...it, used: false }));
     this.undoStack = [];
   }
 
@@ -63,11 +69,20 @@ export class Game {
       armed: [], nextBonus: 0, rapid: 0,
       // p1: 弾倉（末尾が一番上＝次弾） / p2: 魔法陣（先頭から順に埋まる）。中身は { card, lit }
       stock: [],
-      deck: shuffle(DECKS[pid].map(makeCard), this.rng), discard: [], hand: [],
     };
-    for (let i = 0; i < RULES.handSize; i++) p.hand.push(this.draw(p));
-    return p;
+    return this.solo ? p : Object.assign(p, this.makePile(DECKS[pid], RULES.handSize));
   }
+
+  makePile(ids, handSize) {
+    const pile = { deck: shuffle(ids.map(makeCard), this.rng), discard: [], hand: [] };
+    for (let i = 0; i < handSize; i++) pile.hand.push(this.draw(pile));
+    return pile;
+  }
+
+  // 手札・山札・捨て札を持つもの。hid は手札の持ち主、pid はキャラ
+  holder(hid) { return hid === 'solo' ? this.shared : this.players[hid]; }
+  pile(pid) { return this.solo ? this.shared : this.players[pid]; }
+  handIds() { return this.solo ? ['solo'] : PIDS; }
 
   // 引くたびに山札からランダムに1枚選ぶ（取り消してから引き直しても、同じカードが来るとは限らない）
   draw(p) {
@@ -82,7 +97,7 @@ export class Game {
   alive(pid) { return this.players[pid].hp > 0; }
   alivePids() { return PIDS.filter((pid) => this.alive(pid)); }
   other(pid) { return pid === 'p1' ? 'p2' : 'p1'; }
-  canAct(pid) { return !this.over && !this.enemyPending && this.alive(pid); }
+  canAct(pid) { return !this.over && !this.enemyPending && (pid === 'solo' ? this.alivePids().length > 0 : this.alive(pid)); }
 
   // 弾倉の次弾 / 魔法陣でまだ発動していない最初のアルカナ / 属性を付けられる最初のアルカナ
   topBullet() { return this.players.p1.stock.at(-1) ?? null; }
@@ -94,6 +109,7 @@ export class Game {
   // カードが今使えるか。使えないときは理由を返す
   checkCard(pid, card) {
     const p = this.players[pid];
+    if (!this.alive(pid)) return 'down';
     if (card.cost > p.cost) return 'cost';
     if (card.load && p.stock.length >= RULES.stockMax) return 'full';
     if (card.type === 'arcana' && p.stock.length >= RULES.stockMax) return 'full';
@@ -103,16 +119,18 @@ export class Game {
   }
 
   // カードは使った時点で発動する
-  playCard(pid, slot) {
-    if (!this.canAct(pid)) return null;
-    const p = this.players[pid];
-    const card = p.hand[slot];
+  playCard(hid, slot) {
+    if (!this.canAct(hid)) return null;
+    const h = this.holder(hid);
+    const card = h.hand[slot];
     if (!card) return null;
+    const pid = this.solo ? card.owner : hid;
+    const p = this.players[pid];
     const err = this.checkCard(pid, card);
     if (err) return { error: err };
-    this.saveUndo(pid);
+    this.saveUndo(hid);
     p.cost -= card.cost;
-    p.hand[slot] = this.draw(p);
+    h.hand[slot] = this.draw(h);
     const ev = [log(`${NAME[pid]}「${card.name}」`)];
     this.resolveCard(pid, card, ev);
     if (!card.free) this.afterAction(pid, ev);
@@ -133,9 +151,9 @@ export class Game {
         ev.push({ type: 'stock', pid, lit: true }, log('アルカナ発動待ち'));
         return;
       case 'load': {
-        const made = makeCard(pid === 'p1' ? 'bullet' : 'arcana');
-        p.stock.push({ card: made, lit: false });
-        ev.push({ type: 'stock', pid, add: true });
+        const n = Math.min(card.load, RULES.stockMax - p.stock.length);
+        for (let i = 0; i < n; i++) p.stock.push({ card: makeCard(pid === 'p1' ? 'bullet' : 'arcana'), lit: false });
+        ev.push({ type: 'stock', pid, add: n });
         break;
       }
       case 'enchant':
@@ -159,7 +177,7 @@ export class Game {
         if (card.hits) this.attack(card.hits, ev);
         this.applyFx(pid, card.fx, ev);
     }
-    p.discard.push(card);
+    this.pile(pid).discard.push(card);
   }
 
   // 弾倉・魔法陣を使う。ルスカーは次弾を撃ち、ラティシアは次のアルカナを発動待ちにする
@@ -206,7 +224,7 @@ export class Game {
       e.resist += resist;
       ev.push({ type: 'status', target: 'enemy', text: `抵抗×${e.resist}` });
     }
-    p1.discard.push(card);
+    this.pile('p1').discard.push(card);
   }
 
   // 速射: 弾丸を撃ったとき、弾倉に次弾があれば続けて撃つ
@@ -220,16 +238,16 @@ export class Game {
     this.fireBullet(p1.stock.pop().card, ev, true);
   }
 
-  reroll(pid) {
-    if (!this.canAct(pid)) return null;
-    this.saveUndo(pid);
-    const p = this.players[pid];
-    for (const c of p.hand) if (c) p.discard.push(c);
-    p.hand = p.hand.map(() => null);
-    for (let i = 0; i < RULES.handSize; i++) p.hand[i] = this.draw(p);
-    const ev = [log(`${NAME[pid]} 手札を引き直した`)];
+  reroll(hid) {
+    if (!this.canAct(hid)) return null;
+    this.saveUndo(hid);
+    const h = this.holder(hid);
+    for (const c of h.hand) if (c) h.discard.push(c);
+    h.hand = h.hand.map(() => null);
+    for (let i = 0; i < h.hand.length; i++) h.hand[i] = this.draw(h);
+    const ev = [log(`${this.solo ? '' : `${NAME[hid]} `}手札を引き直した`)];
     for (const q of this.alivePids()) this.gainCost(q, 1, ev);
-    this.afterAction(pid, ev, false);
+    this.afterAction(hid, ev, false);
     this.checkOver(ev);
     ev.push({ type: 'cost' });
     return { events: ev };
@@ -238,21 +256,39 @@ export class Game {
   // ---------------- 取り消し
 
   // 敵が次に行動するまでの間、行動の直前の状態を積んでおく。取り消せるのは一番新しい行動だけで、それが自分の行動のとき
-  saveUndo(pid) {
-    const { round, avMax, av, enemy, players } = this;
-    this.undoStack.push({ pid, state: structuredClone({ round, avMax, av, enemy, players }) });
+  // 一人モードでは操作する人が1人なので、誰の行動でも 'solo' として積む。二人モードのアイテムは 'item' で、どちらも取り消せない
+  saveUndo(who) {
+    const { round, avMax, av, enemy, players, shared, items } = this;
+    this.undoStack.push({ who: this.solo ? 'solo' : who, state: structuredClone({ round, avMax, av, enemy, players, shared, items }) });
   }
 
-  canUndo(pid) {
-    return this.canAct(pid) && this.undoStack.at(-1)?.pid === pid;
+  canUndo(who) {
+    return this.canAct(who) && this.undoStack.at(-1)?.who === who;
   }
 
-  undo(pid) {
-    if (!this.canAct(pid)) return null;
+  undo(who) {
+    if (!this.canAct(who)) return null;
     if (!this.undoStack.length) return { error: 'noUndo' };
-    if (this.undoStack.at(-1).pid !== pid) return { error: 'notYours' };
+    if (this.undoStack.at(-1).who !== who) return { error: 'notYours' };
     Object.assign(this, this.undoStack.pop().state);
-    return { events: [log(`${NAME[pid]} 取り消し`)] };
+    return { events: [log(`${who === 'solo' ? '' : `${NAME[who]} `}取り消し`)] };
+  }
+
+  // ---------------- アイテム
+
+  // 1戦に各1回。行動値を消費せず、相方のコストも回復しない
+  useItem(i) {
+    if (this.over || this.enemyPending || !this.alivePids().length) return null;
+    const it = this.items[i];
+    if (!it) return null;
+    if (it.used) return { error: 'used' };
+    this.saveUndo('item');
+    it.used = true;
+    const ev = [log(`アイテム「${it.name}」`), { type: 'item', index: i }];
+    this.applyFx(null, it.fx, ev);
+    this.checkOver(ev);
+    ev.push({ type: 'cost' });
+    return { item: it, events: ev };
   }
 
   // 行動のあと: 相方のコスト+1、敵の行動値-1、崩壊のダメージ
@@ -313,7 +349,7 @@ export class Game {
     p.hp = Math.max(0, p.hp - dmg);
     ev.push({ type: 'damage', target: pid, amount: dmg, blocked, hp: p.hp, block: p.block });
     if (p.hp === 0) {
-      p.discard.push(...p.armed);
+      this.pile(pid).discard.push(...p.armed);
       p.armed = [];
       p.block = 0;
       ev.push({ type: 'down', pid }, log(`${NAME[pid]} 戦闘不能`));
@@ -353,6 +389,8 @@ export class Game {
     }
     if (fx.selfCost) this.gainCost(pid, fx.selfCost, ev);
     if (fx.healAll) for (const t of this.alivePids()) this.heal(t, fx.healAll, ev);
+    if (fx.guardAll) for (const t of this.alivePids()) this.gainBlock(t, fx.guardAll, ev);
+    if (fx.costAll) for (const t of this.alivePids()) this.gainCost(t, fx.costAll, ev);
   }
 
   // ---------------- 敵の行動
@@ -380,7 +418,7 @@ export class Game {
     const index = p2.stock.findIndex((s) => s.lit);
     if (index < 0) return ev;
     const [s] = p2.stock.splice(index, 1);
-    p2.discard.push(s.card);
+    this.pile('p2').discard.push(s.card);
     const match = s.card.aspect === card.kind;
     const dmg = s.card.dmg + (match ? RULES.arcanaAttrBonus : 0);
     card.hp = Math.max(0, card.hp - dmg);
@@ -425,7 +463,7 @@ export class Game {
     }
     for (const pid of pids) {
       const p = this.players[pid];
-      p.discard.push(...p.armed);
+      this.pile(pid).discard.push(...p.armed);
       p.armed = [];
     }
     this.checkOver(ev);
@@ -474,6 +512,8 @@ export class Game {
     this.checkOver(ev);
     if (this.over) return ev;
     for (const pid of this.alivePids()) this.gainCost(pid, 1, ev);
+    // 取り消せるのは敵が次に行動するまで（v0.6 まではここで消しておらず、敵の行動をまたいで戻せていた）
+    this.undoStack = [];
     this.round++;
     this.av = this.avMax;
     this.enemyPending = false;

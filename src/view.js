@@ -33,7 +33,16 @@ export const KEYS = {
   p1: { move: 'A / D', use: 'SPACE', stock: 'W', reroll: 'S', undo: 'Shift' },
   p2: { move: '← / →', use: 'ENTER', stock: '↑', reroll: '↓', undo: 'BackSpace' },
 };
+// 一人モードは1人で全部を操作する。弾丸とアルカナはキャラごとにキーを分ける
+const SOLO_KEY = { move: 'A / D', use: 'SPACE', reroll: 'S', undo: 'Shift' };
+const SOLO_KEYS = { solo: SOLO_KEY, p1: { ...SOLO_KEY, stock: 'W' }, p2: { ...SOLO_KEY, stock: 'E' } };
+const ITEM_KEYS = ['1', '2', '3'];
 const STOCK_ACT = { p1: '弾丸を撃つ', p2: 'アルカナ発動' };
+const SOLO_COL = '#ffe9a8';
+
+// 今のモード（bindGame で game.mode に合わせる）。描画関数がキー表記や配置を切り替えるのに使う
+let SOLO = false;
+const keysOf = (id) => (SOLO ? SOLO_KEYS : KEYS)[id];
 
 // 描画順（renderOrder）
 const L = {
@@ -48,7 +57,9 @@ const POS = {
   p2: { x: 722, feet: 726 },
   enemy: { x: 1325, top: 490 },
 };
-const HAND_X = { p1: [335, 543, 752], p2: [1160, 1369, 1579] };
+const HAND_X = { p1: [335, 543, 752], p2: [1160, 1369, 1579], solo: [541, 749, 957, 1165, 1373] };
+// アイテム欄。二人モードは2人の手札の間、一人モードは手札の右
+const ITEM_BOX = { w: 210, h: 290, duo: { x: 957, top: 930 }, solo: { x: 1590, top: 930 } };
 const CARD_W = 190;
 const CARD_H = 300;
 const HAND_TOP = 772 + CARD_H / 2;
@@ -69,16 +80,26 @@ const MINI_W = 88;
 const MINI_H = 124;
 const GEAR = { x: 1872, top: 48 };
 
-const HELP = [
-  ['目的', '灯火の翼竜の HP を0にするか、上に並ぶ敵の攻撃カード（赤）をすべて破壊すれば勝ち。2人とも倒れたら負け。'],
-  ['行動値', 'ターンはなく、2人とも好きな順に操作できる（制限時間なし）。カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治は行動値を消費しない。'],
-  ['コスト', '左右の紋章の赤い数字。初期値3で上限なし。カードを使うと、相方のコストが1回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。'],
-  ['取り消し', '1P は Shift、2P は BackSpace。敵が次に行動するまでの間、自分の直前の行動を取り消せる（相方がそのあとに行動していたら不可）。'],
-  ['弾丸（ルスカー）', '再型で弾倉に1発ずつ装填（最大5）。W で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。'],
-  ['アルカナ（ラティシア）', '占星統治で魔法陣に1つずつ補填（最大5）。↑ で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵が行動するたびに、発動待ちのアルカナが番号の若い順に1つだけ当たって捨て札に行き、残りは番号が繰り上がって魔法陣に残る。'],
-  ['パリィ', 'パリィカードを使うと「構え」になり、次の敵の攻撃カードでバーが出る。中央で止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。「全員でパリィ」のカードを構えていると2人ともバーに参加する。'],
-  ['敵', 'HP が半分を切ると激昂し、行動値が3になる。防御値は HP より先に削られる盾で、使い切らなかった分は溜まっていく。'],
-];
+function helpRows() {
+  const k1 = keysOf('p1');
+  const k2 = keysOf('p2');
+  return [
+    ['目的', '灯火の翼竜の HP を0にするか、上に並ぶ敵の攻撃カード（赤）をすべて破壊すれば勝ち。2人とも倒れたら負け。'],
+    SOLO
+      ? ['一人モード', 'ルスカーとラティシアの2人を1人で操作する。2人のデッキは1つに混ざり、手札5枚から好きなカードを使う。カードの縁の色と名札が持ち主で、コストはその持ち主の紋章から払う。倒れたキャラのカードは使えない。']
+      : ['二人モード', '1台のキーボードを2人で使い、それぞれ自分の手札3枚を操作する。ターンはなく、2人とも好きな順に操作できる（制限時間なし）。'],
+    ['行動値', `カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテムは行動値を消費しない。`],
+    ['コスト', `左右の紋章の赤い数字。初期値3で上限なし。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが1回復する' : 'カードを使うと、相方のコストが1回復する'}（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。`],
+    ['取り消し', SOLO
+      ? `${SOLO_KEY.undo}。敵が次に行動するまでの間、直前の行動から順に取り消せる。`
+      : '1P は Shift、2P は BackSpace。敵が次に行動するまでの間、自分の直前の行動を取り消せる（相方がそのあとに行動していたら不可）。'],
+    ['弾丸（ルスカー）', `再型で弾倉に1発ずつ装填（最大5）。${k1.stock} で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。`],
+    ['アルカナ（ラティシア）', `占星統治1枚で魔法陣に2つ補填（最大5。v0.6 までは1つ）。${k2.stock} で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵が行動するたびに、発動待ちのアルカナが番号の若い順に1つだけ当たって捨て札に行く。`],
+    ['アイテム（仮）', `${ITEM_KEYS.join('／')} キーで使う。各1戦に1回、行動値を消費しない。闘志の香＝ルスカーの次の攻撃+6、守りの護符＝2人とも防御+6、魔力の結晶＝2人ともコスト+2。${SOLO ? '' : '2人のどちらが押してもよい（取り消し不可）。'}`],
+    ['パリィ', `パリィカードを使うと「構え」になり、次の敵の攻撃カードでバーが出る。中央で止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。${SOLO ? 'バーは1本で、止めた位置が構えている全員に効く。' : '「全員でパリィ」のカードを構えていると2人ともバーに参加する。'}`],
+    ['敵', 'HP が半分を切ると激昂し、行動値が3になる。防御値は HP より先に削られる盾で、使い切らなかった分は溜まっていく。'],
+  ];
+}
 
 // ------------------------------------------------------------------ 汎用
 
@@ -817,8 +838,9 @@ export function drawCard(ctx, w, h, card, o) {
   rr(ctx, 4, 4, w - 8, h - 8, 9);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#1a1a1a';
+  // 一人モードでは持ち主のキャラの色で縁取る
+  ctx.lineWidth = o.owner ? 5 : 2;
+  ctx.strokeStyle = o.owner ? PCOL[card.owner] : '#1a1a1a';
   ctx.stroke();
   const ix = 4;
   // 名前の帯（種類の色）
@@ -858,6 +880,16 @@ export function drawCard(ctx, w, h, card, o) {
   ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.fillText(label, w / 2, 157);
+  if (o.owner) {
+    const name = NAME[card.owner];
+    ctx.font = font(13);
+    const nw = ctx.measureText(name).width + 18;
+    rr(ctx, w - 10 - nw, 58, nw, 22, 11);
+    ctx.fillStyle = PCOL[card.owner];
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(name, w - 10 - nw / 2, 69);
+  }
   // 効果文
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
@@ -1245,20 +1277,23 @@ function drawEnemyName(ctx, w, h, e) {
 }
 
 // 手札の上（地面の帯）: 名前と操作
-function drawHint(ctx, w, h, pid) {
-  const k = KEYS[pid];
+function drawHint(ctx, w, h, hid) {
+  const solo = hid === 'solo';
+  const k = solo ? SOLO_KEY : KEYS[hid];
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = font(17);
-  const name = `${LABEL[pid]} ${NAME[pid]}`;
-  const keys = `${k.move} 選択　${k.use} 使う　${k.reroll} 引き直し　${k.undo} 取り消し`;
+  const name = solo ? '一人モード' : `${LABEL[hid]} ${NAME[hid]}`;
+  const keys = solo
+    ? `${k.move} 選択　${k.use} 使う　${SOLO_KEYS.p1.stock} 撃つ　${SOLO_KEYS.p2.stock} アルカナ　${k.reroll} 引き直し　${k.undo} 取り消し　${ITEM_KEYS[0]}〜${ITEM_KEYS.at(-1)} アイテム`
+    : `${k.move} 選択　${k.use} 使う　${k.reroll} 引き直し　${k.undo} 取り消し`;
   ctx.font = font(15, 500);
   const kw = ctx.measureText(keys).width;
   ctx.font = font(17);
   const nw = ctx.measureText(name).width;
   const x0 = (w - (nw + 18 + kw)) / 2;
   rr(ctx, x0 - 12, 4, nw + 24, h - 8, (h - 8) / 2);
-  ctx.fillStyle = PCOL[pid];
+  ctx.fillStyle = solo ? '#3a3226' : PCOL[hid];
   ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'left';
@@ -1499,7 +1534,7 @@ function drawEmblem(ctx, w, h, pid, p, active) {
   const count = pid === 'p1' ? p.stock.length : p.stock.filter((st) => st.lit).length;
   badge(cx + 76, cy + 76, 24, count, false);
   // 操作のヒント（地面の帯の上）
-  const hint = pid === 'p1' ? `${KEYS.p1.stock}：撃つ（コスト1）` : `${KEYS.p2.stock}：発動待ちに（コスト1）`;
+  const hint = pid === 'p1' ? `${keysOf('p1').stock}：撃つ（コスト1）` : `${keysOf('p2').stock}：発動待ちに（コスト1）`;
   ctx.font = font(16);
   ctx.textBaseline = 'middle';
   const tw = ctx.measureText(hint).width + 28;
@@ -1517,19 +1552,6 @@ function circleNode(i, cx, cy, r = NODE_R) {
 }
 
 // 中央の3つの菱形（画面案の飾り）
-function drawDiamonds(ctx, w, h) {
-  for (const y of [h / 2 - 59, h / 2, h / 2 + 59]) {
-    ctx.save();
-    ctx.translate(w / 2, y);
-    ctx.rotate(Math.PI / 4);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(-17, -17, 34, 34);
-    ctx.fillStyle = '#111111';
-    ctx.fillRect(-9, -9, 18, 18);
-    ctx.restore();
-  }
-}
-
 function drawLog(ctx, w, h, lines) {
   rr(ctx, 0, 0, w, h, 12);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
@@ -1630,19 +1652,20 @@ function drawParryBand(ctx, w, h, active) {
   rr(ctx, cx - pz, cy - 9, pz * 2, 18, 9);
   ctx.fillStyle = '#ffb3b6';
   ctx.fill();
-  for (const [pid, x] of [['p1', 120], ['p2', w - 120]]) {
+  // 一人モードはバー1本（1P のマーカーを使い、止めた位置を構えている全員に適用する）
+  for (const [pid, x] of SOLO ? [['p1', 120]] : [['p1', 120], ['p2', w - 120]]) {
     ctx.globalAlpha = active.includes(pid) ? 1 : 0.25;
     ctx.beginPath();
     ctx.arc(x, cy, 54, 0, Math.PI * 2);
-    ctx.fillStyle = pid === 'p1' ? '#7a45d0' : '#c86a38';
+    ctx.fillStyle = SOLO ? '#8a6a2a' : pid === 'p1' ? '#7a45d0' : '#c86a38';
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = font(30);
-    ctx.fillText(LABEL[pid], x, cy - 9);
+    ctx.font = font(SOLO ? 24 : 30);
+    ctx.fillText(SOLO ? 'パリィ' : LABEL[pid], x, cy - 9);
     ctx.font = font(15);
-    ctx.fillText(KEYS[pid].use, x, cy + 20);
+    ctx.fillText(keysOf(pid).use, x, cy + 20);
     ctx.globalAlpha = 1;
   }
 }
@@ -1659,71 +1682,119 @@ function drawMarker(ctx, w, h, color) {
   ctx.stroke();
 }
 
-function drawRoleBox(ctx, x, y, pid, ready) {
-  const w = 460;
-  const h = 300;
+// 操作の一覧の箱。二人モードは 1P／2P の2つ、一人モードは1つ
+function drawKeyBox(ctx, x, y, w, { title, col, light, rows, tagline, status, ok }) {
+  const h = 124 + rows.length * 34;
   rr(ctx, x, y, w, h, 18);
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
   ctx.fill();
-  ctx.lineWidth = ready ? 4 : 2;
-  ctx.strokeStyle = ready ? '#8ef0b0' : PLIGHT[pid];
+  ctx.lineWidth = ok ? 4 : 2;
+  ctx.strokeStyle = ok ? '#8ef0b0' : light;
   ctx.stroke();
   rr(ctx, x, y, w, 64, [18, 18, 0, 0]);
-  ctx.fillStyle = PCOL[pid];
+  ctx.fillStyle = col;
   ctx.fill();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
   ctx.font = font(32);
-  ctx.fillText(`${LABEL[pid]}  ${NAME[pid]}`, x + 24, y + 33);
-  const k = KEYS[pid];
-  [[k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.stock, pid === 'p1' ? '弾倉の弾丸を撃つ' : 'アルカナを発動待ちに'], [k.reroll, '手札を引き直す'], [k.undo, '直前の行動を取り消す']]
-    .forEach(([key, desc], i) => {
-      const yy = y + 94 + i * 34;
-      rr(ctx, x + 24, yy - 14, 110, 28, 8);
-      ctx.fillStyle = 'rgba(255,255,255,0.14)';
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = font(17);
-      ctx.textAlign = 'center';
-      ctx.fillText(key, x + 79, yy + 1);
-      ctx.textAlign = 'left';
-      ctx.font = font(19, 500);
-      ctx.fillText(desc, x + 150, yy + 1);
-    });
+  ctx.fillText(title, x + 24, y + 33);
+  rows.forEach(([key, desc], i) => {
+    const yy = y + 94 + i * 34;
+    rr(ctx, x + 24, yy - 14, 110, 28, 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = font(17);
+    ctx.textAlign = 'center';
+    ctx.fillText(key, x + 79, yy + 1);
+    ctx.textAlign = 'left';
+    ctx.font = font(19, 500);
+    ctx.fillText(desc, x + 150, yy + 1);
+  });
   ctx.font = font(18);
-  ctx.fillStyle = PLIGHT[pid];
-  ctx.fillText(pid === 'p1' ? '弾丸で翼竜の HP を削る' : 'アルカナで翼竜のカードを壊す', x + 24, y + 276);
+  ctx.fillStyle = light;
+  ctx.fillText(tagline, x + 24, y + h - 24);
   ctx.textAlign = 'right';
   ctx.font = font(20);
-  ctx.fillStyle = ready ? '#8ef0b0' : 'rgba(255,255,255,0.65)';
-  ctx.fillText(ready ? '準備OK ✓' : `${k.use} で準備`, x + w - 24, y + 33);
+  ctx.fillStyle = ok ? '#8ef0b0' : 'rgba(255,255,255,0.65)';
+  ctx.fillText(status, x + w - 24, y + 33);
+  return y + h;
+}
+
+function roleBox(ctx, x, y, pid, ready) {
+  const k = KEYS[pid];
+  return drawKeyBox(ctx, x, y, 460, {
+    title: `${LABEL[pid]}  ${NAME[pid]}`, col: PCOL[pid], light: PLIGHT[pid],
+    rows: [[k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.stock, pid === 'p1' ? '弾倉の弾丸を撃つ' : 'アルカナを発動待ちに'], [k.reroll, '手札を引き直す'], [k.undo, '直前の行動を取り消す']],
+    tagline: pid === 'p1' ? '弾丸で翼竜の HP を削る' : 'アルカナで翼竜のカードを壊す',
+    status: ready ? '準備OK ✓' : `${k.use} で準備`, ok: ready,
+  });
+}
+
+function soloBox(ctx, x, y) {
+  const k = SOLO_KEYS;
+  return drawKeyBox(ctx, x, y, 620, {
+    title: `${NAME.p1}＆${NAME.p2}`, col: '#5a4a2a', light: SOLO_COL,
+    rows: [
+      [k.solo.move, 'カード選択（2人のカードが混ざった手札5枚）'], [k.solo.use, 'カードを使う／パリィを止める'],
+      [k.p1.stock, 'ルスカーの弾丸を撃つ'], [k.p2.stock, 'ラティシアのアルカナを発動待ちに'],
+      [k.solo.reroll, '手札を引き直す'], [k.solo.undo, '直前の行動を取り消す'], [`${ITEM_KEYS[0]}〜${ITEM_KEYS.at(-1)}`, 'アイテムを使う'],
+    ],
+    tagline: '2人の主人公を1人で操作する',
+    status: 'SPACE で開始', ok: false,
+  });
+}
+
+// モードの切り替え（一人／二人）
+function drawModeTabs(ctx, w, y, solo) {
+  [['一人で遊ぶ', true], ['二人で遊ぶ', false]].forEach(([text, s], i) => {
+    const x = w / 2 + (i === 0 ? -250 : 10);
+    const on = s === solo;
+    rr(ctx, x, y, 240, 56, 28);
+    ctx.fillStyle = on ? C.gold : 'rgba(255,255,255,0.06)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = on ? C.gold : 'rgba(255,255,255,0.35)';
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = font(26);
+    ctx.fillStyle = on ? '#1a1408' : 'rgba(255,255,255,0.7)';
+    ctx.fillText(text, x + 120, y + 29);
+  });
 }
 
 function drawTitle(ctx, w, h, ready) {
   ctx.fillStyle = 'rgba(8, 14, 18, 0.8)';
   ctx.fillRect(0, 0, w, h);
-  drawBird(ctx, w / 2 + 8, 210, 2.6, '#e6dcff');
+  drawBird(ctx, w / 2 + 8, 190, 2.4, '#e6dcff');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#f4efe2';
   ctx.font = font(96);
-  ctx.fillText('BATTLE MOCK', w / 2, 360);
+  ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('2人協力・行動値制カードバトル　戦闘モック v0.6', w / 2, 428);
+  ctx.fillText('行動値制カードバトル　戦闘モック v0.7（一人／二人の比較用）', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
-  ctx.fillText('1台のキーボードを2人で使います', w / 2, 474);
-  drawRoleBox(ctx, w / 2 - 490, 530, 'p1', ready.p1);
-  drawRoleBox(ctx, w / 2 + 30, 530, 'p2', ready.p2);
+  ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
+  drawModeTabs(ctx, w, 476, SOLO);
+  let bottom;
+  if (SOLO) {
+    bottom = soloBox(ctx, w / 2 - 310, 560);
+  } else {
+    bottom = roleBox(ctx, w / 2 - 490, 560, 'p1', ready.p1);
+    roleBox(ctx, w / 2 + 30, 560, 'p2', ready.p2);
+  }
   ctx.textAlign = 'center';
   ctx.font = font(30);
   ctx.fillStyle = '#ffffff';
-  ctx.fillText('1P は SPACE、2P は ENTER で準備 ― 2人そろうと開始', w / 2, 900);
+  ctx.fillText(SOLO ? 'SPACE または ENTER で開始' : '1P は SPACE、2P は ENTER で準備 ― 2人そろうと開始', w / 2, bottom + 50);
   ctx.font = font(20, 500);
   ctx.fillStyle = '#8fa7ad';
-  ctx.fillText('H または右上の歯車：ルールと操作　／　画像素材は使わず、すべてコードで描画しています', w / 2, 950);
+  ctx.fillText('H または右上の歯車：ルールと操作　／　画像素材は使わず、すべてコードで描画しています', w / 2, bottom + 96);
 }
 
 function drawResult(ctx, w, h, info, ready) {
@@ -1741,47 +1812,91 @@ function drawResult(ctx, w, h, info, ready) {
   ctx.fillText(win ? `ROUND ${info.round} で${how}` : `ROUND ${info.round} で全滅`, w / 2, 520);
   ctx.font = font(26, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText(`${NAME.p1} HP ${info.hp1}　／　${NAME.p2} HP ${info.hp2}`, w / 2, 580);
+  ctx.fillText(`${info.solo ? '一人モード' : '二人モード'}　${NAME.p1} HP ${info.hp1}　／　${NAME.p2} HP ${info.hp2}`, w / 2, 580);
+  drawModeTabs(ctx, w, 660, SOLO);
   ctx.font = font(30);
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(`1P：SPACE ${ready.p1 ? '✓' : '　'}　　2P：ENTER ${ready.p2 ? '✓' : '　'}　　でもう一度`, w / 2, 720);
+  ctx.fillText(SOLO ? 'SPACE または ENTER でもう一度' : `1P：SPACE ${ready.p1 ? '✓' : '　'}　　2P：ENTER ${ready.p2 ? '✓' : '　'}　　でもう一度`, w / 2, 780);
+  ctx.font = font(20, 500);
+  ctx.fillStyle = '#8fa7ad';
+  ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 830);
 }
 
 function drawHelp(ctx, w, h) {
-  ctx.fillStyle = 'rgba(8, 14, 18, 0.9)';
+  ctx.fillStyle = 'rgba(8, 14, 18, 0.92)';
   ctx.fillRect(0, 0, w, h);
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.fillStyle = '#ffffff';
   ctx.font = font(44);
-  ctx.fillText('ルールと操作', 220, 140);
+  ctx.fillText(`ルールと操作（${SOLO ? '一人' : '二人'}モード）`, 220, 120);
   ctx.font = font(20, 500);
   ctx.fillStyle = '#8fa7ad';
-  ctx.fillText('H／ESC／クリックで閉じる', 1420, 140);
-  let y = 196;
-  for (const [head, body] of HELP) {
-    ctx.font = font(24);
+  ctx.fillText('H／ESC／クリックで閉じる', 1420, 120);
+  let y = 170;
+  for (const [head, body] of helpRows()) {
+    ctx.font = font(22);
     ctx.fillStyle = C.gold;
     ctx.fillText(head, 220, y);
-    ctx.font = font(19, 500);
+    ctx.font = font(18, 500);
     ctx.fillStyle = '#e8eef0';
     for (const line of wrapLines(ctx, body, 1180)) {
       ctx.fillText(line, 530, y);
-      y += 27;
+      y += 25;
     }
-    y += 14;
+    y += 10;
   }
-  y += 10;
-  ctx.font = font(24);
+  y += 6;
+  ctx.font = font(22);
   ctx.fillStyle = C.gold;
   ctx.fillText('操作', 220, y);
-  ctx.font = font(22, 500);
+  ctx.font = font(19, 500);
   ctx.fillStyle = '#e8eef0';
+  if (SOLO) {
+    const k = SOLO_KEYS;
+    ctx.fillText(`${k.solo.move}：カード選択　${k.solo.use}：使う／パリィを止める　${k.p1.stock}：${STOCK_ACT.p1}　${k.p2.stock}：${STOCK_ACT.p2}　${k.solo.reroll}：引き直し　${k.solo.undo}：取り消し　${ITEM_KEYS.join('・')}：アイテム`, 530, y);
+    return;
+  }
   for (const pid of PIDS) {
     const k = KEYS[pid];
     ctx.fillText(`${LABEL[pid]} ${NAME[pid]}　${k.move}：カード選択　${k.use}：使う／パリィを止める　${k.stock}：${STOCK_ACT[pid]}　${k.reroll}：引き直し　${k.undo}：取り消し`, 530, y);
-    y += 30;
+    y += 28;
   }
+  ctx.fillText(`アイテム　${ITEM_KEYS.join('・')}（どちらが押してもよい）`, 530, y);
+}
+
+// アイテム欄（各1回）。使ったものは暗くする
+function drawItems(ctx, w, h, items, active) {
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = font(16);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.fillText('アイテム（各1回）', w / 2, 14);
+  items.forEach((it, i) => {
+    const y = 34 + i * 84;
+    ctx.globalAlpha = it.used ? 0.35 : active ? 1 : 0.7;
+    rr(ctx, 4, y, w - 8, 76, 12);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.stroke();
+    rr(ctx, 12, y + 10, 34, 34, 8);
+    ctx.fillStyle = C.buff;
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = font(22);
+    ctx.textAlign = 'center';
+    ctx.fillText(ITEM_KEYS[i], 29, y + 28);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = font(18);
+    ctx.fillText(it.name, 56, y + 27);
+    ctx.font = font(13, 500);
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillText(it.used ? '使用済み' : it.text, 14, y + 59);
+    ctx.globalAlpha = 1;
+  });
 }
 
 // ------------------------------------------------------------------ View
@@ -2028,28 +2143,35 @@ export class View {
       this.scene.add(re.mesh, dk.mesh);
       this.trash[pid] = re;
       this.decks[pid] = dk;
-      const hint = canvasPlane(640, 40, (ctx, w, h) => drawHint(ctx, w, h, pid), { layer: L.panels });
+      const hint = canvasPlane(640, 40, null, { layer: L.panels });
       // 2P は右の魔法陣の説明と重ならないよう少し左に寄せる
       at(hint.mesh, HAND_X[pid][1] - (pid === 'p2' ? 60 : 0), 742);
       this.scene.add(hint.mesh);
       this.hints[pid] = hint;
     }
-    const dia = canvasPlane(60, 180, drawDiamonds, { layer: L.panels });
-    at(dia.mesh, 957, 973);
-    this.scene.add(dia.mesh);
+    // 一人モードの操作ヒントは手札の真上に1本
+    const solo = canvasPlane(1120, 40, null, { layer: L.panels });
+    at(solo.mesh, HAND_X.solo[2], 742);
+    this.scene.add(solo.mesh);
+    this.hints.solo = solo;
+    // v0.6 までの中央の3つの菱形（意味なし）はアイテム欄に置き換えた
+    this.itemPlane = canvasPlane(ITEM_BOX.w, ITEM_BOX.h, null, { layer: L.panels });
+    this.scene.add(this.itemPlane.mesh);
   }
 
   buildHands() {
-    this.hands = { p1: [], p2: [] };
-    for (const pid of PIDS) {
-      for (let i = 0; i < 3; i++) {
-        const group = at(new THREE.Group(), HAND_X[pid][i], HAND_TOP);
-        const glow = canvasPlane(CARD_W + 50, CARD_H + 50, (ctx, w, h) => drawCardGlow(ctx, w, h, PLIGHT[pid]), { layer: L.cards - 1 });
+    this.hands = { p1: [], p2: [], solo: [] };
+    for (const hid of Object.keys(this.hands)) {
+      const n = hid === 'solo' ? RULES.soloHandSize : RULES.handSize;
+      const col = hid === 'solo' ? SOLO_COL : PLIGHT[hid];
+      for (let i = 0; i < n; i++) {
+        const group = at(new THREE.Group(), HAND_X[hid][i], HAND_TOP);
+        const glow = canvasPlane(CARD_W + 50, CARD_H + 50, (ctx, w, h) => drawCardGlow(ctx, w, h, col), { layer: L.cards - 1 });
         glow.mesh.visible = false;
         const card = canvasPlane(CARD_W, CARD_H, null, { layer: L.cards, scale: Math.min(2.5, RES * 1.3) });
         group.add(glow.mesh, card.mesh);
         this.scene.add(group);
-        this.hands[pid].push({ group, glow, card, home: group.position.clone(), lift: 0, slide: { y: 0 }, shake: { x: 0 }, key: null });
+        this.hands[hid].push({ group, glow, card, home: group.position.clone(), lift: 0, slide: { y: 0 }, shake: { x: 0 }, key: null });
       }
     }
   }
@@ -2119,9 +2241,9 @@ export class View {
       if (!m.userData.busy) m.rotation.z = Math.sin(t * 1.2 + i * 1.1) * 0.03;
     });
 
-    for (const pid of PIDS) {
-      this.hands[pid].forEach((s, i) => {
-        const sel = !!this.game && this.phase === 'player' && this.cursor[pid] === i && this.game.canAct(pid);
+    for (const hid of this.game?.handIds() ?? PIDS) {
+      this.hands[hid].forEach((s, i) => {
+        const sel = !!this.game && this.phase === 'player' && this.cursor[hid] === i && this.game.canAct(hid);
         s.lift += ((sel ? 1 : 0) - s.lift) * Math.min(1, dt * 0.016);
         s.group.position.x = s.home.x + s.shake.x;
         s.group.position.y = s.home.y + s.lift * 70 + s.slide.y;
@@ -2144,11 +2266,11 @@ export class View {
     this.logLines = [];
     this.reveal = null;
     this.syncDisp();
+    this.applyMode();
     for (const pid of PIDS) {
       const c = this.chars[pid];
       c.sprite.mesh.material.opacity = 1;
       c.root.rotation.z = 0;
-      for (const s of this.hands[pid]) s.key = null;
     }
     this.enemyMats.forEach((m) => {
       m.color.setRGB(1, 1, 1);
@@ -2167,6 +2289,27 @@ export class View {
     });
     this.drawLogPlane();
     this.refresh();
+  }
+
+  // 一人／二人で、手札・ヒント・山札ボタン・アイテム欄の出し方を切り替える
+  applyMode() {
+    SOLO = this.game.solo;
+    const ids = this.game.handIds();
+    for (const [hid, slots] of Object.entries(this.hands)) {
+      for (const s of slots) {
+        s.group.visible = ids.includes(hid);
+        s.key = null;
+      }
+    }
+    for (const [hid, hint] of Object.entries(this.hints)) {
+      hint.mesh.visible = ids.includes(hid);
+      hint.draw((ctx, w, h) => drawHint(ctx, w, h, hid));
+    }
+    // 一人モードの山札・引き直しは左下の1組だけ
+    this.trash.p2.mesh.visible = this.decks.p2.mesh.visible = !SOLO;
+    const box = SOLO ? ITEM_BOX.solo : ITEM_BOX.duo;
+    at(this.itemPlane.mesh, box.x, box.top);
+    this.helpPlane.draw(drawHelp);
   }
 
   syncDisp() {
@@ -2191,7 +2334,13 @@ export class View {
     this.drawEnemyPanel();
     this.drawStocks();
     this.drawAction();
+    this.drawItemPlane();
     this.roundPlane.draw((ctx, w, h) => drawRound(ctx, w, h, this.game.round));
+  }
+
+  drawItemPlane() {
+    const active = this.phase === 'player' && !this.game.over;
+    this.itemPlane.draw((ctx, w, h) => drawItems(ctx, w, h, this.game.items, active));
   }
 
   drawAction() {
@@ -2220,17 +2369,19 @@ export class View {
 
   refreshHands() {
     const g = this.game;
-    for (const pid of PIDS) {
-      const p = g.players[pid];
-      p.hand.forEach((card, i) => {
-        const s = this.hands[pid][i];
+    for (const hid of g.handIds()) {
+      g.holder(hid).hand.forEach((card, i) => {
+        const s = this.hands[hid][i];
+        // コストと使えるかどうかはカードの持ち主のキャラで見る（一人モードは混ざっている）
+        const pid = card?.owner ?? hid;
         const err = card ? g.checkCard(pid, card) : null;
         const o = {
           affordable: !err,
-          costOk: !card || card.cost <= p.cost,
-          inactive: this.phase !== 'player' || !g.canAct(pid),
+          costOk: !card || card.cost <= g.players[pid].cost,
+          inactive: this.phase !== 'player' || !g.canAct(hid),
+          owner: g.solo,
         };
-        const key = `${card?.uid}|${card?.boons.length}|${card?.aspect}|${o.affordable}|${o.costOk}|${o.inactive}`;
+        const key = `${card?.uid}|${card?.boons.length}|${card?.aspect}|${o.affordable}|${o.costOk}|${o.inactive}|${o.owner}`;
         if (s.key === key) return;
         s.key = key;
         s.card.draw((ctx, w, h) => drawCard(ctx, w, h, card, o));
@@ -2241,7 +2392,8 @@ export class View {
   // 山札の数（コストは紋章の赤丸に出す）
   drawPanel(pid) {
     const p = this.game.players[pid];
-    this.decks[pid].draw((ctx, w, h) => drawButton(ctx, w, h, 'deck', `山札${p.deck.length}・捨て${p.discard.length}`));
+    const pile = this.game.pile(pid);
+    this.decks[pid].draw((ctx, w, h) => drawButton(ctx, w, h, 'deck', `山札${pile.deck.length}・捨て${pile.discard.length}`));
     this.stocks[pid].draw((ctx, w, h) => drawEmblem(ctx, w, h, pid, p, this.phase === 'player' && this.game.canAct(pid)));
   }
 
@@ -2356,6 +2508,13 @@ export class View {
         if (e.ench) this.popText(sp.x, sp.top - 120, `次弾に${ENCHANT[e.ench].name}`, '#ffe48a', 30);
         if (e.attr) this.popText(sp.x, sp.top - 120, `${KIND_LABEL[e.attr]}属性`, '#ffe48a', 30);
         if (e.lit) this.popText(sp.x, sp.top - 120, '発動待ち', '#ffe9a8', 30);
+        await this.wait(120);
+        return;
+      }
+      case 'item': {
+        this.drawItemPlane();
+        const box = SOLO ? ITEM_BOX.solo : ITEM_BOX.duo;
+        this.ring(box.x, box.top - ITEM_BOX.h / 2 + 72 + e.index * 84, C.buff);
         await this.wait(120);
         return;
       }
@@ -2543,7 +2702,7 @@ export class View {
     mini.mesh.position.copy(s.group.position);
     mini.mesh.scale.set(s.group.scale.x * (CARD_W / MINI_W), s.group.scale.y * (CARD_H / MINI_H), 1);
     this.scene.add(mini.mesh);
-    const dest = this.cardDest(pid, card);
+    const dest = this.cardDest(card.owner, card);
     (async () => {
       await Promise.all([
         this.tween(mini.mesh.position, { y: mini.mesh.position.y + 120 }, 160, 'out'),
@@ -2559,7 +2718,7 @@ export class View {
     this.killTweens(s.slide);
     s.slide.y = -280;
     this.tween(s.slide, { y: 0 }, 300, 'out', 140);
-    this.pulse(pid);
+    this.pulse(card.owner);
   }
 
   cardDest(pid, card) {
@@ -2594,7 +2753,7 @@ export class View {
       s.slide.y = -280;
       this.tween(s.slide, { y: 0 }, 300, 'out', 60 + i * 70);
     });
-    const t = this.trash[pid].mesh;
+    const t = this.trash[pid === 'solo' ? 'p1' : pid].mesh;
     this.killTweens(t.rotation);
     t.rotation.z = 0;
     this.tween(t.rotation, { z: Math.PI * 2 }, 420, 'out').then(() => { t.rotation.z = 0; });
@@ -2604,9 +2763,14 @@ export class View {
   undone() {
     this.queue.length = 0;
     this.syncDisp();
-    for (const pid of PIDS) for (const s of this.hands[pid]) s.key = null;
+    for (const slots of Object.values(this.hands)) for (const s of slots) s.key = null;
     this.enemySlots.forEach((m, i) => this.drawEnemySlot(i));
     this.refresh();
+  }
+
+  denyItem(i) {
+    const box = SOLO ? ITEM_BOX.solo : ITEM_BOX.duo;
+    this.popText(box.x, box.top - ITEM_BOX.h / 2 + 40 + i * 84, '使用済み', '#d23a3a', 26);
   }
 
   denyUndo(pid) {
@@ -2692,7 +2856,7 @@ export class View {
     ui.group.position.y = 40;
     await this.tween(ui.group.position, { y: 0 }, 220, 'out');
     await this.wait(600);
-    ui.title.draw((ctx, w, h) => drawCenterText(ctx, w, h, `${pids.map((pid) => `${LABEL[pid]}：${KEYS[pid].use}`).join('　')}　で中央に止めろ！`, C.gold, 30));
+    ui.title.draw((ctx, w, h) => drawCenterText(ctx, w, h, `${SOLO ? keysOf('solo').use : pids.map((pid) => `${LABEL[pid]}：${KEYS[pid].use}`).join('　')}　で中央に止めろ！`, C.gold, 30));
     await new Promise((res) => {
       st.finish = res;
       st.active = true;
@@ -2737,7 +2901,7 @@ export class View {
     const gr = grade(acc);
     const col = gr === 'PERFECT' ? C.gold : gr === '成功' ? '#ff9aa0' : '#c0c0c0';
     const r = this.parryUi.ratings[pid];
-    r.draw((ctx, w, h) => drawCenterText(ctx, w, h, `${LABEL[pid]} ${gr === 'PERFECT' ? 'PERFECT!' : gr}`, col, 28));
+    r.draw((ctx, w, h) => drawCenterText(ctx, w, h, `${SOLO ? '' : `${LABEL[pid]} `}${gr === 'PERFECT' ? 'PERFECT!' : gr}`, col, 28));
     // 中央より外側に、1P は少し上・2P は少し下にずらして重なりを避ける
     at(r.mesh, markerX(m.pos) + (m.pos < 0.5 ? -160 : 160), TRACK.top + (pid === 'p1' ? -20 : 20));
     r.mesh.visible = true;
@@ -2759,9 +2923,15 @@ export class View {
   showResult(game, ready) {
     this.overlayState = {
       kind: 'result',
-      info: { result: game.over, winBy: game.winBy, round: game.round, hp1: game.players.p1.hp, hp2: game.players.p2.hp },
+      info: { result: game.over, winBy: game.winBy, round: game.round, hp1: game.players.p1.hp, hp2: game.players.p2.hp, solo: game.solo },
     };
     this.updateStartReady(ready);
+  }
+
+  // リザルト画面でのモード切り替え（盤面は次の戦闘開始時に作り直す）
+  setSolo(solo) {
+    SOLO = solo;
+    this.helpPlane.draw(drawHelp);
   }
 
   updateStartReady(ready) {

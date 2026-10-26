@@ -3,7 +3,8 @@
 export const RULES = {
   playerMaxHp: 70,
   enemyMaxHp: 80,
-  handSize: 3,
+  handSize: 3, // 二人モードの1人あたりの手札
+  soloHandSize: 5, // 一人モードの手札（2人分のカードが混ざる）
   startCost: 3, // コストの初期値。上限なし
   // 行動値: 味方がカードを使う・手札を引き直すたびに1減り、0で敵が行動して元に戻る
   actionValue: 4,
@@ -33,7 +34,7 @@ export const ENCHANT = {
   power: { name: '特攻', dmg: 3 }, // 弾丸の攻撃力 +dmg
 };
 
-// free: 行動値を消費しない（相方のコストも回復しない）
+// free: 行動値を消費しない（相方のコストも回復しない） / load: 弾倉・魔法陣に入れる数
 // hits: 敵へのダメージ列 / block: パリィの防御値 [バーの端, 中央] / success: パリィ成功時効果
 // blockAll: 構えていると味方全員がバーに参加し、それぞれ自分の止めた位置で決まる防御値を得る
 // fx: 発動時効果
@@ -41,7 +42,7 @@ export const CARDS = {
   // ---- 1P ルスカー ----
   bullet: { name: '弾丸', owner: 'p1', type: 'bullet', cost: 1, dmg: 5, text: '敵に5ダメージ\n（手札からも撃てる）' },
   reload: {
-    name: '再型', owner: 'p1', type: 'load', cost: 0, free: true, load: true,
+    name: '再型', owner: 'p1', type: 'load', cost: 0, free: true, load: 1,
     text: '弾丸を1発装填\n行動値を消費しない',
   },
   guardA: { name: '防御', owner: 'p1', type: 'guard', cost: 1, gain: 5, text: '防御値+5' },
@@ -71,8 +72,8 @@ export const CARDS = {
   // ---- 2P ラティシア ----
   arcana: { name: 'アルカナ', owner: 'p2', type: 'arcana', cost: 1, dmg: 5, text: '魔法陣に置いて発動\n次に敵が使うカードに\n5ダメージ' },
   astro: {
-    name: '占星統治', owner: 'p2', type: 'load', cost: 1, free: true, load: true,
-    text: 'アルカナを1つ補填\n行動値を消費しない',
+    name: '占星統治', owner: 'p2', type: 'load', cost: 1, free: true, load: 2,
+    text: 'アルカナを2つ補填\n行動値を消費しない',
   },
   guardB: { name: '防御', owner: 'p2', type: 'guard', cost: 1, gain: 5, text: '防御値+5' },
   blessDecay: {
@@ -102,6 +103,14 @@ export const CARDS = {
     text: '全員でパリィ\n各自に防御0〜5\n自分成功で全員HP+4',
   },
 };
+
+// バフアイテム（仮）。どちらのモードでも1戦に各1回、行動値を消費しない
+// fx は CARDS と同じ書き方（guardAll: 味方全員に防御 / costAll: 味方全員のコスト）
+export const ITEMS = [
+  { id: 'incense', name: '闘志の香', fx: { p1Bonus: 6 }, text: 'ルスカーの次の攻撃+6' },
+  { id: 'charm', name: '守りの護符', fx: { guardAll: 6 }, text: '2人とも防御+6' },
+  { id: 'crystal', name: '魔力の結晶', fx: { costAll: 2 }, text: '2人ともコスト+2' },
+];
 
 // 弾丸とアルカナは初期デッキに入らない（再型・占星統治で生まれ、使うと捨て札を経てデッキに混ざる）
 const times = (id, n) => Array(n).fill(id);
