@@ -2,7 +2,7 @@
 
 export const RULES = {
   playerMaxHp: 70,
-  enemyMaxHp: 80,
+  enemyMaxHp: 75,
   handSize: 3, // 二人モードの1人あたりの手札
   soloHandSize: 5, // 一人モードの手札（2人分のカードが混ざる）
   startCost: 3, // コストの初期値。上限なし
@@ -124,9 +124,9 @@ export const DECKS = {
 export const ENEMY = {
   name: '灯火の翼竜',
   cards: {
-    claw: { name: '爪撃', kind: 'attack', target: 'random', dmg: 19, hp: 13 },
-    tail: { name: '尾薙ぎ', kind: 'attack', target: 'all', dmg: 12, hp: 13 },
-    bite: { name: '噛みつき', kind: 'attack', target: 'highHp', dmg: 23, hp: 15 },
+    claw: { name: '爪撃', kind: 'attack', target: 'random', dmg: 17, hp: 16 },
+    tail: { name: '尾薙ぎ', kind: 'attack', target: 'all', dmg: 11, hp: 16 },
+    bite: { name: '噛みつき', kind: 'attack', target: 'highHp', dmg: 21, hp: 18 },
     wing: { name: '羽ばたき', kind: 'guard', selfBlock: 12, hp: 12 },
     roar: { name: '咆哮', kind: 'special', strength: 2, hp: 12 },
   },
