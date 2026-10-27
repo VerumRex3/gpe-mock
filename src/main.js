@@ -1,5 +1,6 @@
 // 入力と進行。ルールは game.js、見た目は view.js
 import { Game } from './game.js';
+import { RULES } from './data.js';
 import { View } from './view.js';
 
 const KEYMAP = {
@@ -52,8 +53,12 @@ const startReady = { p1: false, p2: false };
 // title / intro / player / enemy / parry / ending / result
 let mode = 'title';
 // ?solo を付けると一人モードで始まる（タイトルで切り替えられる）
-let playMode = new URLSearchParams(location.search).has('solo') ? 'solo' : 'duo';
-let game = new Game(Math.random, playMode);
+const params = new URLSearchParams(location.search);
+let playMode = params.has('solo') ? 'solo' : 'duo';
+// 一人モードの山札の分け方。?deck=mixed / ?deck=split で指定でき、タイトルでも W / S で切り替えられる
+let soloDeck = ['mixed', 'split'].includes(params.get('deck')) ? params.get('deck') : RULES.soloDeck;
+const newGame = () => new Game(Math.random, playMode, { soloDeck });
+let game = newGame();
 
 view.bindGame(game, cursor);
 view.setPhase('title');
@@ -76,6 +81,7 @@ window.addEventListener('keydown', (e) => {
 function onAction(pid, act, arg) {
   if (mode === 'title' || mode === 'result') {
     if (act === 'left' || act === 'right') return switchMode();
+    if (playMode === 'solo' && (act === 'stock' || act === 'reroll')) return switchDeck();
     if (act !== 'use') return;
     if (playMode === 'solo') return startBattle();
     startReady[pid] = true;
@@ -94,11 +100,23 @@ function switchMode() {
   playMode = playMode === 'solo' ? 'duo' : 'solo';
   startReady.p1 = startReady.p2 = false;
   if (mode === 'title') {
-    game = new Game(Math.random, playMode);
+    game = newGame();
     view.bindGame(game, cursor);
     view.showTitle(startReady);
   } else {
-    view.setSolo(playMode === 'solo');
+    view.setSolo(playMode === 'solo', soloDeck === 'split');
+    view.updateStartReady(startReady);
+  }
+}
+
+function switchDeck() {
+  soloDeck = soloDeck === 'split' ? 'mixed' : 'split';
+  if (mode === 'title') {
+    game = newGame();
+    view.bindGame(game, cursor);
+    view.showTitle(startReady);
+  } else {
+    view.setSolo(true, soloDeck === 'split');
     view.updateStartReady(startReady);
   }
 }
@@ -175,7 +193,7 @@ async function afterPlayerAction() {
 async function startBattle() {
   mode = 'intro';
   startReady.p1 = startReady.p2 = false;
-  game = new Game(Math.random, playMode);
+  game = newGame();
   cursor.p1 = cursor.p2 = cursor.solo = 0;
   view.bindGame(game, cursor);
   view.setPhase('intro');

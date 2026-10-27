@@ -5,7 +5,7 @@ const base = new URL('../src', import.meta.url).href;
 const data = await import(`${base}/data.js`);
 const { Game } = await import(`${base}/game.js`);
 const over = JSON.parse(process.argv[2] ?? '{}');
-// 上書き: { enemyHp, cardHp: {claw:..}, cardDmg: {claw:..}, arcanaDmg, attrBonus, astroLoad, av, soloHand, noItems }
+// 上書き: { enemyHp, cardHp: {claw:..}, cardDmg: {claw:..}, arcanaDmg, attrBonus, astroLoad, av, soloHand, soloDeck, noItems }
 if (over.enemyHp) data.RULES.enemyMaxHp = over.enemyHp;
 if (over.cardHp) for (const [k, v] of Object.entries(over.cardHp)) data.ENEMY.cards[k].hp = v;
 if (over.cardDmg) for (const [k, v] of Object.entries(over.cardDmg)) data.ENEMY.cards[k].dmg = v;
@@ -15,6 +15,7 @@ if (over.astroLoad) data.CARDS.astro.load = over.astroLoad;
 if (over.av) data.RULES.actionValue = over.av;
 if (over.noItems) data.ITEMS.forEach((it) => { it.fx = {}; });
 if (over.soloHand) data.RULES.soloHandSize = over.soloHand;
+if (over.soloDeck) data.RULES.soloDeck = over.soloDeck;
 
 const SKILL = {
   good: { noise: 0.05, parry: () => 0.6 + Math.random() * 0.4, items: true },

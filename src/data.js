@@ -4,7 +4,9 @@ export const RULES = {
   playerMaxHp: 70,
   enemyMaxHp: 75,
   handSize: 3, // 二人モードの1人あたりの手札
-  soloHandSize: 5, // 一人モードの手札（2人分のカードが混ざる）
+  soloHandSize: 5, // 一人モード（山札を混ぜる場合）の手札
+  // 一人モードの山札: 'split' = キャラ別のまま手札は 3:3（handSize ずつ） / 'mixed' = 2人のデッキを1つに混ぜる
+  soloDeck: 'split',
   startCost: 3, // コストの初期値。上限なし
   // 行動値: 味方がカードを使う・手札を引き直すたびに1減り、0で敵が行動して元に戻る
   actionValue: 4,

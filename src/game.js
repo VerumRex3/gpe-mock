@@ -39,13 +39,15 @@ export function describeEnemyCard(card, dmg = card.dmg) {
   return '';
 }
 
-// mode: 'duo' = 2人でそれぞれの手札を操作 / 'solo' = 1人で2人分の混ざった手札（shared）を操作
+// mode: 'duo' = 2人でそれぞれの手札を操作 / 'solo' = 1人で2人分の手札（shared）を操作
+// 一人モードの山札 soloDeck: 'mixed' = 2人のデッキを1つに混ぜる / 'split' = 山札はキャラ別のまま、手札はルスカー3枚＋ラティシア3枚
 // 手札の持ち主は 'p1' / 'p2'（二人モード）か 'solo'（一人モード）。カードの効果やコストはカードの owner のキャラに付く
 export class Game {
-  constructor(rng = Math.random, mode = 'duo') {
+  constructor(rng = Math.random, mode = 'duo', { soloDeck = RULES.soloDeck } = {}) {
     this.rng = rng;
     this.mode = mode;
     this.solo = mode === 'solo';
+    this.split = this.solo && soloDeck === 'split';
     this.round = 1; // 敵が行動するたびに進む
     this.over = null; // 'win' | 'lose'
     this.winBy = null; // 'hp' | 'cards'
@@ -58,7 +60,15 @@ export class Game {
     this.av = this.avMax;
     this.enemyPending = false; // 行動値が0になり、敵の行動待ち
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
-    this.shared = this.solo ? this.makePile([...DECKS.p1, ...DECKS.p2], RULES.soloHandSize) : null;
+    this.shared = null;
+    if (this.split) {
+      // 手札の左3枚がルスカー、右3枚がラティシア。使った枠はその持ち主の山札から引くので、いつも 3:3
+      this.shared = { hand: [...this.players.p1.hand, ...this.players.p2.hand] };
+      this.players.p1.hand = [];
+      this.players.p2.hand = [];
+    } else if (this.solo) {
+      this.shared = this.makePile([...DECKS.p1, ...DECKS.p2], RULES.soloHandSize);
+    }
     this.items = ITEMS.map((it) => ({ ...it, used: false }));
     this.undoStack = [];
   }
@@ -70,7 +80,7 @@ export class Game {
       // p1: 弾倉（末尾が一番上＝次弾） / p2: 魔法陣（先頭から順に埋まる）。中身は { card, lit }
       stock: [],
     };
-    return this.solo ? p : Object.assign(p, this.makePile(DECKS[pid], RULES.handSize));
+    return this.solo && !this.split ? p : Object.assign(p, this.makePile(DECKS[pid], RULES.handSize));
   }
 
   makePile(ids, handSize) {
@@ -81,8 +91,13 @@ export class Game {
 
   // 手札・山札・捨て札を持つもの。hid は手札の持ち主、pid はキャラ
   holder(hid) { return hid === 'solo' ? this.shared : this.players[hid]; }
-  pile(pid) { return this.solo ? this.shared : this.players[pid]; }
+  pile(pid) { return this.solo && !this.split ? this.shared : this.players[pid]; }
   handIds() { return this.solo ? ['solo'] : PIDS; }
+  // 手札の slot 番目の枠を埋めるときに引く山札
+  drawPile(hid, slot) {
+    if (!this.split) return this.holder(hid);
+    return this.players[slot < RULES.handSize ? 'p1' : 'p2'];
+  }
 
   // 引くたびに山札からランダムに1枚選ぶ（取り消してから引き直しても、同じカードが来るとは限らない）
   draw(p) {
@@ -130,7 +145,7 @@ export class Game {
     if (err) return { error: err };
     this.saveUndo(hid);
     p.cost -= card.cost;
-    h.hand[slot] = this.draw(h);
+    h.hand[slot] = this.draw(this.drawPile(hid, slot));
     const ev = [log(`${NAME[pid]}「${card.name}」`)];
     this.resolveCard(pid, card, ev);
     if (!card.free) this.afterAction(pid, ev);
@@ -242,9 +257,9 @@ export class Game {
     if (!this.canAct(hid)) return null;
     this.saveUndo(hid);
     const h = this.holder(hid);
-    for (const c of h.hand) if (c) h.discard.push(c);
+    for (const c of h.hand) if (c) this.pile(c.owner).discard.push(c);
     h.hand = h.hand.map(() => null);
-    for (let i = 0; i < h.hand.length; i++) h.hand[i] = this.draw(h);
+    for (let i = 0; i < h.hand.length; i++) h.hand[i] = this.draw(this.drawPile(hid, i));
     const ev = [log(`${this.solo ? '' : `${NAME[hid]} `}手札を引き直した`)];
     for (const q of this.alivePids()) this.gainCost(q, 1, ev);
     this.afterAction(hid, ev, false);
