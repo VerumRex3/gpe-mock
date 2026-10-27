@@ -1,5 +1,5 @@
 // カード一覧ページ。ゲームと同じ描画関数で data.js のカードを並べる
-import { CARDS, DECKS, ENEMY, KIND_LABEL, ITEMS } from './data.js';
+import { CARDS, DECKS, ENEMY, KIND_LABEL, ITEMS, RULES } from './data.js';
 import { NAME } from './game.js';
 import { drawCard, drawEnemyCard, loadFonts } from './view.js';
 
@@ -93,6 +93,6 @@ root.append(
     tile(canvasFor(190, 300, 200, (ctx, w, h) => drawCard(ctx, w, h, playerCard('arcana'), cardOpts)), 0, '占星統治で魔法陣に補填'),
   ]),
   section('バフアイテム（仮）', '一人・二人どちらのモードでも、1戦に各1回使える。行動値を消費しない。', itemTiles()),
-  section(`敵：${ENEMY.name}のカード`, `${ENEMY.lineup.length}枚とも表向きに並び、壊れていないものからランダムに1枚使う。攻撃カードをすべて壊すと勝ち。`, enemyTiles()),
+  section(`敵：${ENEMY.name}のカード`, `${ENEMY.lineup.length}枚とも表向きに並び、壊れていないものからランダムに1枚使う。攻撃カードをすべて壊すと勝ち。ダメージは一人モードの値で、二人モード（ターン制）では+${RULES.turn.dmgBonus}、敵の HP も ${RULES.turn.enemyHp}（一人モードは ${RULES.enemyMaxHp}）。`, enemyTiles()),
 );
 document.getElementById('boot')?.remove();

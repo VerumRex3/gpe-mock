@@ -10,7 +10,7 @@ const KEYMAP = {
   KeyW: ['p1', 'stock'],
   KeyS: ['p1', 'reroll'],
   ShiftLeft: ['p1', 'undo'],
-  ShiftRight: ['p1', 'undo'],
+  KeyE: ['p1', 'end'],
   ArrowLeft: ['p2', 'left'],
   ArrowRight: ['p2', 'right'],
   Enter: ['p2', 'use'],
@@ -18,6 +18,7 @@ const KEYMAP = {
   ArrowUp: ['p2', 'stock'],
   ArrowDown: ['p2', 'reroll'],
   Backspace: ['p2', 'undo'],
+  ShiftRight: ['p2', 'end'],
   Digit1: ['item', 'item', 0],
   Digit2: ['item', 'item', 1],
   Digit3: ['item', 'item', 2],
@@ -133,7 +134,8 @@ function playerAction(pid, act, arg) {
     view.refresh();
     return;
   }
-  if (!game.canAct(pid)) return;
+  // 取り消しだけは、ターン終了を押したあとでも受け付ける
+  if (act !== 'undo' && !game.canAct(pid)) return;
   if (act === 'left' || act === 'right') {
     const n = game.holder(pid).hand.length;
     cursor[pid] = (cursor[pid] + (act === 'left' ? n - 1 : 1)) % n;
@@ -164,9 +166,16 @@ function playerAction(pid, act, arg) {
       return;
     }
     view.undone();
+  } else if (act === 'end') {
+    res = game.endTurn(pid);
+    if (!res) return;
   } else if (act === 'reroll') {
     res = game.reroll(pid);
     if (!res) return;
+    if (res.error) {
+      view.denyText(pid, res.error);
+      return;
+    }
     view.handRerolled(pid);
   }
   if (!res) return;
@@ -198,7 +207,7 @@ async function startBattle() {
   view.bindGame(game, cursor);
   view.setPhase('intro');
   await view.hideOverlay();
-  const sub = game.solo ? '2人のカードを1人で使う ― カードを使うたびに敵の行動値が減る' : '2人で自由に行動 ― カードを使うたびに敵の行動値が減る';
+  const sub = game.solo ? '2人のカードを1人で使う ― カードを使うたびに敵の行動値が減る' : '2人で自由に行動 ― 2人とも「ターン終了」で敵が行動';
   await view.banner('BATTLE START', sub, '#e8fbff', 700);
   mode = 'player';
   view.setPhase('player');
@@ -206,6 +215,15 @@ async function startBattle() {
 
 // 敵の行動: カードを1枚選ぶ → 発動待ちのアルカナが当たる → 壊れなければパリィ → 効果
 async function enemyPhase() {
+  do {
+    await enemyAction();
+  } while (!game.over && game.enemyPending);
+  if (game.over) return finish();
+  mode = 'player';
+  view.setPhase('player');
+}
+
+async function enemyAction() {
   mode = 'enemy';
   view.setPhase('enemy');
   const slot = game.pickEnemySlot();
@@ -238,9 +256,6 @@ async function enemyPhase() {
     view.enqueue(game.endEnemyAction());
     await view.idle();
   }
-  if (game.over) return finish();
-  mode = 'player';
-  view.setPhase('player');
 }
 
 // ?debug を付けたときだけ、確認用の操作をコンソールに出す

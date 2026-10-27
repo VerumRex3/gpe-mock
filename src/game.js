@@ -48,18 +48,25 @@ export class Game {
     this.mode = mode;
     this.solo = mode === 'solo';
     this.split = this.solo && soloDeck === 'split';
+    // 二人モードはターン制（RULES.duoProgress）。一人モードは行動値制のまま
+    this.turnBased = !this.solo && RULES.duoProgress === 'turn';
+    this.ended = { p1: false, p2: false }; // ターン制: 「ターン終了」を押したか
+    this.rerolled = { p1: false, p2: false }; // ターン制: このターンに引き直したか（1ターン1回）
+    this.enemyActsLeft = 0; // ターン制: このターンに敵があと何回行動するか
     this.round = 1; // 敵が行動するたびに進む
     this.over = null; // 'win' | 'lose'
     this.winBy = null; // 'hp' | 'cards'
+    const enemyHp = this.turnBased ? RULES.turn.enemyHp : RULES.enemyMaxHp;
     this.enemy = {
-      name: ENEMY.name, hp: RULES.enemyMaxHp, maxHp: RULES.enemyMaxHp, block: 0,
+      name: ENEMY.name, hp: enemyHp, maxHp: enemyHp, block: 0,
       strength: 0, frenzy: false, decay: 0, resist: 0,
       cards: ENEMY.lineup.map(makeEnemyCard),
     };
     this.avMax = RULES.actionValue;
     this.av = this.avMax;
-    this.enemyPending = false; // 行動値が0になり、敵の行動待ち
+    this.enemyPending = false; // 行動値が0になった（ターン制では2人ともターン終了した）ので、敵の行動待ち
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
+    if (this.turnBased) for (const p of Object.values(this.players)) p.cost = RULES.turn.cost;
     this.shared = null;
     if (this.split) {
       // 手札の左3枚がルスカー、右3枚がラティシア。使った枠はその持ち主の山札から引くので、いつも 3:3
@@ -112,7 +119,11 @@ export class Game {
   alive(pid) { return this.players[pid].hp > 0; }
   alivePids() { return PIDS.filter((pid) => this.alive(pid)); }
   other(pid) { return pid === 'p1' ? 'p2' : 'p1'; }
-  canAct(pid) { return !this.over && !this.enemyPending && (pid === 'solo' ? this.alivePids().length > 0 : this.alive(pid)); }
+  canAct(pid) {
+    if (this.over || this.enemyPending) return false;
+    if (pid === 'solo') return this.alivePids().length > 0;
+    return this.alive(pid) && !(this.turnBased && this.ended[pid]);
+  }
 
   // 弾倉の次弾 / 魔法陣でまだ発動していない最初のアルカナ / 属性を付けられる最初のアルカナ
   topBullet() { return this.players.p1.stock.at(-1) ?? null; }
@@ -255,13 +266,16 @@ export class Game {
 
   reroll(hid) {
     if (!this.canAct(hid)) return null;
+    if (this.turnBased && this.rerolled[hid]) return { error: 'rerolled' };
     this.saveUndo(hid);
+    if (this.turnBased) this.rerolled[hid] = true;
     const h = this.holder(hid);
     for (const c of h.hand) if (c) this.pile(c.owner).discard.push(c);
     h.hand = h.hand.map(() => null);
     for (let i = 0; i < h.hand.length; i++) h.hand[i] = this.draw(this.drawPile(hid, i));
     const ev = [log(`${this.solo ? '' : `${NAME[hid]} `}手札を引き直した`)];
-    for (const q of this.alivePids()) this.gainCost(q, 1, ev);
+    // ターン制では引き直しは1ターン1回で、コストは増えない
+    if (!this.turnBased) for (const q of this.alivePids()) this.gainCost(q, 1, ev);
     this.afterAction(hid, ev, false);
     this.checkOver(ev);
     ev.push({ type: 'cost' });
@@ -273,16 +287,38 @@ export class Game {
   // 敵が次に行動するまでの間、行動の直前の状態を積んでおく。取り消せるのは一番新しい行動だけで、それが自分の行動のとき
   // 一人モードでは操作する人が1人なので、誰の行動でも 'solo' として積む。二人モードのアイテムは 'item' で、どちらも取り消せない
   saveUndo(who) {
-    const { round, avMax, av, enemy, players, shared, items } = this;
-    this.undoStack.push({ who: this.solo ? 'solo' : who, state: structuredClone({ round, avMax, av, enemy, players, shared, items }) });
+    const { round, avMax, av, enemy, players, shared, items, ended, rerolled } = this;
+    this.undoStack.push({ who: this.solo ? 'solo' : who, state: structuredClone({ round, avMax, av, enemy, players, shared, items, ended, rerolled }) });
+  }
+
+  // ---------------- ターン制（二人モード）
+
+  // 「ターン終了」。2人とも（倒れた人は除く）押したら敵が行動する。押したあとも、相方が押す前なら取り消しで戻せる
+  endTurn(pid) {
+    if (!this.turnBased || !this.canAct(pid)) return null;
+    this.saveUndo(pid);
+    this.ended[pid] = true;
+    const all = this.alivePids().every((q) => this.ended[q]);
+    const ev = [log(`${NAME[pid]} ターン終了`), { type: 'turnEnd', pid, all }];
+    if (all) {
+      this.enemyActsLeft = this.enemy.frenzy ? RULES.turn.frenzyEnemyActs : RULES.turn.enemyActs;
+      this.enemyPending = true;
+    }
+    return { events: ev };
+  }
+
+  // ターン終了を押した人も、相方が押す前なら取り消せる（canAct は終了後 false になるので別に見る）
+  canRewind(who) {
+    if (this.over || this.enemyPending) return false;
+    return who === 'solo' ? this.alivePids().length > 0 : this.alive(who);
   }
 
   canUndo(who) {
-    return this.canAct(who) && this.undoStack.at(-1)?.who === who;
+    return this.canRewind(who) && this.undoStack.at(-1)?.who === who;
   }
 
   undo(who) {
-    if (!this.canAct(who)) return null;
+    if (!this.canRewind(who)) return null;
     if (!this.undoStack.length) return { error: 'noUndo' };
     if (this.undoStack.at(-1).who !== who) return { error: 'notYours' };
     Object.assign(this, this.undoStack.pop().state);
@@ -307,7 +343,12 @@ export class Game {
   }
 
   // 行動のあと: 相方のコスト+1、敵の行動値-1、崩壊のダメージ
+  // ターン制では行動値もコストの回復も無く、崩壊のダメージだけ入る
   afterAction(pid, ev, partnerGain = true) {
+    if (this.turnBased) {
+      this.tickDecay(ev);
+      return;
+    }
     if (partnerGain && this.alive(this.other(pid))) this.gainCost(this.other(pid), 1, ev);
     this.av = Math.max(0, this.av - 1);
     ev.push({ type: 'av', av: this.av });
@@ -349,9 +390,13 @@ export class Game {
     ev.push({ type: 'damage', target: 'enemy', amount: dmg, blocked, hp: e.hp, block: e.block, dot });
     if (!e.frenzy && e.hp > 0 && e.hp <= e.maxHp * RULES.frenzyRatio) {
       e.frenzy = true;
-      this.avMax = RULES.frenzyActionValue;
-      this.av = Math.min(this.av, this.avMax);
-      ev.push({ type: 'frenzy' }, { type: 'av', av: this.av }, log(`翼竜が激昂した！ 行動値が${this.avMax}になる`));
+      if (this.turnBased) {
+        ev.push({ type: 'frenzy' }, log(`翼竜が激昂した！ 次のターンから1ターンに${RULES.turn.frenzyEnemyActs}回行動する`));
+      } else {
+        this.avMax = RULES.frenzyActionValue;
+        this.av = Math.min(this.av, this.avMax);
+        ev.push({ type: 'frenzy' }, { type: 'av', av: this.av }, log(`翼竜が激昂した！ 行動値が${this.avMax}になる`));
+      }
     }
   }
 
@@ -420,7 +465,7 @@ export class Game {
   }
 
   enemyDamage(card) {
-    const base = Math.max(0, card.dmg + this.enemy.strength);
+    const base = Math.max(0, card.dmg + this.enemy.strength + (this.turnBased ? RULES.turn.dmgBonus : 0));
     return this.enemy.resist ? Math.floor(base / 2) : base;
   }
 
@@ -516,6 +561,7 @@ export class Game {
   }
 
   // 敵の行動の締め: 崩壊のダメージ（ここで切れる）、両者のコスト+1、行動値を戻す
+  // ターン制では、このターンの敵の行動が残っていれば enemyPending のまま返す。終わったら次のターンでコストが戻る
   endEnemyAction() {
     const ev = [];
     const e = this.enemy;
@@ -526,7 +572,16 @@ export class Game {
     }
     this.checkOver(ev);
     if (this.over) return ev;
-    for (const pid of this.alivePids()) this.gainCost(pid, 1, ev);
+    if (this.turnBased) {
+      this.enemyActsLeft--;
+      if (this.enemyActsLeft > 0) return ev;
+      for (const pid of this.alivePids()) this.players[pid].cost = RULES.turn.cost;
+      this.ended = { p1: false, p2: false };
+      this.rerolled = { p1: false, p2: false };
+      ev.push({ type: 'newTurn' });
+    } else {
+      for (const pid of this.alivePids()) this.gainCost(pid, 1, ev);
+    }
     // 取り消せるのは敵が次に行動するまで（v0.6 まではここで消しておらず、敵の行動をまたいで戻せていた）
     this.undoStack = [];
     this.round++;

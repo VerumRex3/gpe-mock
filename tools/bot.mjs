@@ -5,7 +5,7 @@ const base = new URL('../src', import.meta.url).href;
 const data = await import(`${base}/data.js`);
 const { Game } = await import(`${base}/game.js`);
 const over = JSON.parse(process.argv[2] ?? '{}');
-// 上書き: { enemyHp, cardHp: {claw:..}, cardDmg: {claw:..}, arcanaDmg, attrBonus, astroLoad, av, soloHand, soloDeck, noItems }
+// 上書き: { duoProgress, turn: {cost, enemyActs, frenzyEnemyActs}, playerHp, enemyHp, cardHp: {claw:..}, cardDmg: {claw:..}, arcanaDmg, attrBonus, astroLoad, av, soloHand, soloDeck, noItems }
 if (over.enemyHp) data.RULES.enemyMaxHp = over.enemyHp;
 if (over.cardHp) for (const [k, v] of Object.entries(over.cardHp)) data.ENEMY.cards[k].hp = v;
 if (over.cardDmg) for (const [k, v] of Object.entries(over.cardDmg)) data.ENEMY.cards[k].dmg = v;
@@ -13,6 +13,9 @@ if (over.arcanaDmg) data.CARDS.arcana.dmg = over.arcanaDmg;
 if (over.attrBonus != null) data.RULES.arcanaAttrBonus = over.attrBonus;
 if (over.astroLoad) data.CARDS.astro.load = over.astroLoad;
 if (over.av) data.RULES.actionValue = over.av;
+if (over.duoProgress) data.RULES.duoProgress = over.duoProgress;
+if (over.turn) Object.assign(data.RULES.turn, over.turn);
+if (over.playerHp) data.RULES.playerMaxHp = over.playerHp;
 if (over.noItems) data.ITEMS.forEach((it) => { it.fx = {}; });
 if (over.soloHand) data.RULES.soloHandSize = over.soloHand;
 if (over.soloDeck) data.RULES.soloDeck = over.soloDeck;
@@ -56,7 +59,7 @@ function candidates(g) {
       }
       out.push({ s, f: () => g.playCard(hid, slot) });
     });
-    out.push({ s: 1.2, f: () => g.reroll(hid) });
+    if (!(g.turnBased && g.rerolled[hid])) out.push({ s: 1.2, f: () => g.reroll(hid) });
   }
   return out;
 }
@@ -83,20 +86,26 @@ function run(mode, sk) {
   while (!g.over && enemyActs < 100) {
     playerTurn(g, sk);
     if (g.over) break;
-    if (!g.enemyPending) { g.av = 0; g.enemyPending = true; }
-    enemyActs++;
-    const slot = g.pickEnemySlot();
-    const card = g.enemy.cards[slot];
-    g.arcanaStrike(slot);
-    if (!card.broken && !g.over) {
-      if (card.kind === 'attack' && g.parryPids().length) {
-        const pids = g.parryPids();
-        const a = sk.parry();
-        g.resolveParry(Object.fromEntries(pids.map((p) => [p, g.solo ? a : sk.parry()])));
-      }
-      if (!g.over) g.resolveEnemyCard(slot);
+    // ターン制は2人とも打つ手が無くなったらターン終了。行動値制で手が尽きたときは、敵の行動まで飛ばす
+    if (!g.enemyPending) {
+      if (g.turnBased) for (const pid of g.alivePids()) g.endTurn(pid);
+      else { g.av = 0; g.enemyPending = true; }
     }
-    if (!g.over) g.endEnemyAction();
+    while (g.enemyPending && !g.over) {
+      enemyActs++;
+      const slot = g.pickEnemySlot();
+      const card = g.enemy.cards[slot];
+      g.arcanaStrike(slot);
+      if (!card.broken && !g.over) {
+        if (card.kind === 'attack' && g.parryPids().length) {
+          const pids = g.parryPids();
+          const a = sk.parry();
+          g.resolveParry(Object.fromEntries(pids.map((p) => [p, g.solo ? a : sk.parry()])));
+        }
+        if (!g.over) g.resolveEnemyCard(slot);
+      }
+      if (!g.over) g.endEnemyAction();
+    }
   }
   return { g, enemyActs };
 }
@@ -105,13 +114,13 @@ const N = Number(process.env.N ?? 3000);
 const rows = [];
 for (const mode of ['duo', 'solo']) {
   for (const skill of ['good', 'novice']) {
-    let win = 0, cards = 0, acts = 0, winActs = 0;
+    let win = 0, cards = 0, acts = 0, winActs = 0, winRounds = 0;
     for (let i = 0; i < N; i++) {
       const { g, enemyActs } = run(mode, SKILL[skill]);
       acts += enemyActs;
-      if (g.over === 'win') { win++; winActs += enemyActs; if (g.winBy === 'cards') cards++; }
+      if (g.over === 'win') { win++; winActs += enemyActs; winRounds += g.round; if (g.winBy === 'cards') cards++; }
     }
-    rows.push(`${mode.padEnd(4)} ${skill.padEnd(6)} win ${(win / N * 100).toFixed(0).padStart(3)}%  byCards ${(cards / Math.max(1, win) * 100).toFixed(0).padStart(3)}%  winActs ${(winActs / Math.max(1, win)).toFixed(1)}`);
+    rows.push(`${mode.padEnd(4)} ${skill.padEnd(6)} win ${(win / N * 100).toFixed(0).padStart(3)}%  byCards ${(cards / Math.max(1, win) * 100).toFixed(0).padStart(3)}%  winActs ${(winActs / Math.max(1, win)).toFixed(1)}  rounds ${(winRounds / Math.max(1, win)).toFixed(1)}`);
   }
 }
 console.log(JSON.stringify(over), '\n' + rows.join('\n'));

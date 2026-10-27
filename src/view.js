@@ -30,8 +30,8 @@ const PCOL = { p1: C.p1, p2: C.p2 };
 const PDARK = { p1: C.p1Dark, p2: C.p2Dark };
 const PLIGHT = { p1: C.p1Light, p2: C.p2Light };
 export const KEYS = {
-  p1: { move: 'A / D', use: 'SPACE', stock: 'W', reroll: 'S', undo: 'Shift' },
-  p2: { move: '← / →', use: 'ENTER', stock: '↑', reroll: '↓', undo: 'BackSpace' },
+  p1: { move: 'A / D', use: 'SPACE', stock: 'W', reroll: 'S', undo: '左Shift', end: 'E' },
+  p2: { move: '← / →', use: 'ENTER', stock: '↑', reroll: '↓', undo: 'BackSpace', end: '右Shift' },
 };
 // 一人モードは1人で全部を操作する。弾丸とアルカナはキャラごとにキーを分ける
 const SOLO_KEY = { move: 'A / D', use: 'SPACE', reroll: 'S', undo: 'Shift' };
@@ -42,7 +42,8 @@ const SOLO_COL = '#ffe9a8';
 
 // 今のモード（bindGame で game.mode に合わせる）。描画関数がキー表記や配置を切り替えるのに使う
 let SOLO = false;
-let SPLIT = false; // 一人モードで山札がキャラ別（手札 3:3）か
+let SPLIT = false;
+let TURN = false; // 二人モードがターン制か // 一人モードで山札がキャラ別（手札 3:3）か
 const keysOf = (id) => (SOLO ? SOLO_KEYS : KEYS)[id];
 
 // 描画順（renderOrder）
@@ -90,17 +91,22 @@ function helpRows() {
     ['目的', '灯火の翼竜の HP を0にするか、上に並ぶ敵の攻撃カード（赤）をすべて破壊すれば勝ち。2人とも倒れたら負け。'],
     SOLO
       ? ['一人モード', `ルスカーとラティシアの2人を1人で操作する。${SPLIT ? '山札はキャラ別のままで、手札は左3枚がルスカー、右3枚がラティシア。使った枠はその持ち主の山札から引くので、いつも 3:3 になる。' : '2人のデッキは1つに混ざり、手札5枚から好きなカードを使う。'}カードの縁の色と名札が持ち主で、コストはその持ち主の紋章から払う。倒れたキャラのカードは使えない。`]
-      : ['二人モード', '1台のキーボードを2人で使い、それぞれ自分の手札3枚を操作する。ターンはなく、2人とも好きな順に操作できる（制限時間なし）。'],
-    ['行動値', `カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテムは行動値を消費しない。`],
-    ['コスト', `左右の紋章の赤い数字。初期値3で上限なし。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが1回復する' : 'カードを使うと、相方のコストが1回復する'}（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。`],
+      : ['二人モード', '1台のキーボードを2人で使い、それぞれ自分の手札3枚を操作する。'],
+    ...(TURN ? [
+      ['ターン', `2人とも好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。自分の番が済んだら「ターン終了」（1P は ${KEYS.p1.end}、2P は ${KEYS.p2.end}）。2人とも押すと敵が1回行動し（激昂後は2回）、次のターンになる。`],
+      ['コスト', `左右の紋章の赤い数字。ターン開始時に ${RULES.turn.cost} に戻る（使い残しは持ち越さない）。手札の引き直しは1ターンに1回。`],
+    ] : [
+      ['行動値', `カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテムは行動値を消費しない。`],
+      ['コスト', `左右の紋章の赤い数字。初期値3で上限なし。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが1回復する' : 'カードを使うと、相方のコストが1回復する'}（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。`],
+    ]),
     ['取り消し', SOLO
       ? `${SOLO_KEY.undo}。敵が次に行動するまでの間、直前の行動から順に取り消せる。`
-      : '1P は Shift、2P は BackSpace。敵が次に行動するまでの間、自分の直前の行動を取り消せる（相方がそのあとに行動していたら不可）。'],
+      : `1P は ${KEYS.p1.undo}、2P は ${KEYS.p2.undo}。敵が次に行動するまでの間、自分の直前の行動を取り消せる（相方がそのあとに行動していたら不可）。${TURN ? 'ターン終了も、相方が押す前なら取り消せる。' : ''}`],
     ['弾丸（ルスカー）', `再型で弾倉に1発ずつ装填（最大5）。${k1.stock} で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。`],
     ['アルカナ（ラティシア）', `占星統治1枚で魔法陣に2つ補填（最大5。v0.6 までは1つ）。${k2.stock} で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵が行動するたびに、発動待ちのアルカナが番号の若い順に1つだけ当たって捨て札に行く。`],
     ['アイテム（仮）', `${ITEM_KEYS.join('／')} キーで使う。各1戦に1回、行動値を消費しない。闘志の香＝ルスカーの次の攻撃+6、守りの護符＝2人とも防御+6、魔力の結晶＝2人ともコスト+2。${SOLO ? '' : '2人のどちらが押してもよい（取り消し不可）。'}`],
     ['パリィ', `パリィカードを使うと「構え」になり、次の敵の攻撃カードでバーが出る。中央で止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。${SOLO ? 'バーは1本で、止めた位置が構えている全員に効く。' : '「全員でパリィ」のカードを構えていると2人ともバーに参加する。'}`],
-    ['敵', 'HP が半分を切ると激昂し、行動値が3になる。防御値は HP より先に削られる盾で、使い切らなかった分は溜まっていく。'],
+    ['敵', `HP が半分を切ると激昂し、${TURN ? `1ターンに${RULES.turn.frenzyEnemyActs}回行動する` : `行動値が${RULES.frenzyActionValue}になる`}。防御値は HP より先に削られる盾で、使い切らなかった分は溜まっていく。`],
   ];
 }
 
@@ -1215,7 +1221,7 @@ function drawCharPanel(ctx, w, h, pid, d, p, game) {
 // 状況の一言（敵の行動中・パリィ中は赤）
 function drawPhasePill(ctx, w, h, phase) {
   const text = {
-    player: 'カードを使う・引き直すたびに、敵の行動値 −1', enemy: '敵の行動', parry: 'パリィ！',
+    player: TURN ? '2人とも「ターン終了」で敵が行動' : 'カードを使う・引き直すたびに、敵の行動値 −1', enemy: '敵の行動', parry: 'パリィ！',
   }[phase];
   if (!text) return;
   const calm = phase === 'player';
@@ -1224,6 +1230,7 @@ function drawPhasePill(ctx, w, h, phase) {
 
 // 敵の頭上: 行動値（黒いバーと赤い数字）
 function drawActionBar(ctx, w, h, game) {
+  if (game.turnBased) return drawTurnStatus(ctx, w, h, game);
   const bx = 40;
   const bw = w - 80;
   const by = h - 34;
@@ -1251,6 +1258,29 @@ function drawActionBar(ctx, w, h, game) {
   ctx.fillStyle = '#333333';
   ctx.textAlign = 'left';
   ctx.fillText('敵の行動まで', bx, by - 8);
+}
+
+function drawTurnStatus(ctx, w, h, game) {
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = font(14);
+  ctx.fillStyle = '#333333';
+  const acts = game.enemy.frenzy ? RULES.turn.frenzyEnemyActs : RULES.turn.enemyActs;
+  ctx.fillText(`2人ともターン終了で敵が行動（${acts}回）`, 40, h - 46);
+  PIDS.forEach((pid, i) => {
+    const x = 40 + i * ((w - 80) / 2 + 4);
+    const bw = (w - 80) / 2 - 4;
+    const down = game.players[pid].hp <= 0;
+    const done = game.ended[pid] || down;
+    rr(ctx, x, h - 38, bw, 32, 16);
+    ctx.fillStyle = done ? '#111111' : PCOL[pid];
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = font(16);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`${LABEL[pid]} ${down ? '戦闘不能' : done ? '終了 ✓' : '行動中'}`, x + bw / 2, h - 21);
+  });
 }
 
 function drawEnemyHp(ctx, w, h, d, e) {
@@ -1289,7 +1319,7 @@ function drawHint(ctx, w, h, hid) {
   const name = solo ? '一人モード' : `${LABEL[hid]} ${NAME[hid]}`;
   const keys = solo
     ? `${k.move} 選択　${k.use} 使う　${SOLO_KEYS.p1.stock} 撃つ　${SOLO_KEYS.p2.stock} アルカナ　${k.reroll} 引き直し　${k.undo} 取り消し　${ITEM_KEYS[0]}〜${ITEM_KEYS.at(-1)} アイテム`
-    : `${k.move} 選択　${k.use} 使う　${k.reroll} 引き直し　${k.undo} 取り消し`;
+    : `${k.move} 選択　${k.use} 使う　${TURN ? `${k.end} ターン終了　` : `${k.reroll} 引き直し　`}${k.undo} 取り消し`;
   ctx.font = font(15, 500);
   const kw = ctx.measureText(keys).width;
   ctx.font = font(17);
@@ -1729,7 +1759,10 @@ function roleBox(ctx, x, y, pid, ready) {
   const k = KEYS[pid];
   return drawKeyBox(ctx, x, y, 460, {
     title: `${LABEL[pid]}  ${NAME[pid]}`, col: PCOL[pid], light: PLIGHT[pid],
-    rows: [[k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.stock, pid === 'p1' ? '弾倉の弾丸を撃つ' : 'アルカナを発動待ちに'], [k.reroll, '手札を引き直す'], [k.undo, '直前の行動を取り消す']],
+    rows: [
+      [k.move, 'カード選択'], [k.use, 'カードを使う／パリィを止める'], [k.stock, pid === 'p1' ? '弾倉の弾丸を撃つ' : 'アルカナを発動待ちに'],
+      [k.reroll, TURN ? '手札を引き直す（1ターン1回）' : '手札を引き直す'], [k.undo, '直前の行動を取り消す'], ...(TURN ? [[k.end, 'ターン終了']] : []),
+    ],
     tagline: pid === 'p1' ? '弾丸で翼竜の HP を削る' : 'アルカナで翼竜のカードを壊す',
     status: ready ? '準備OK ✓' : `${k.use} で準備`, ok: ready,
   });
@@ -1802,7 +1835,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('行動値制カードバトル　戦闘モック v0.10（一人／二人の比較用）', w / 2, 398);
+  ctx.fillText(`${TURN ? '一人＝行動値制／二人＝ターン制' : '行動値制'}カードバトル　戦闘モック v0.11`, w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -1887,7 +1920,7 @@ function drawHelp(ctx, w, h) {
   }
   for (const pid of PIDS) {
     const k = KEYS[pid];
-    ctx.fillText(`${LABEL[pid]} ${NAME[pid]}　${k.move}：カード選択　${k.use}：使う／パリィを止める　${k.stock}：${STOCK_ACT[pid]}　${k.reroll}：引き直し　${k.undo}：取り消し`, 530, y);
+    ctx.fillText(`${LABEL[pid]} ${NAME[pid]}　${k.move}：カード選択　${k.use}：使う／パリィを止める　${k.stock}：${STOCK_ACT[pid]}　${k.reroll}：引き直し　${k.undo}：取り消し${TURN ? `　${k.end}：ターン終了` : ''}`, 530, y);
     y += 28;
   }
   ctx.fillText(`アイテム　${ITEM_KEYS.join('・')}（どちらが押してもよい）`, 530, y);
@@ -2323,6 +2356,7 @@ export class View {
   applyMode() {
     SOLO = this.game.solo;
     SPLIT = this.game.split;
+    TURN = RULES.duoProgress === 'turn';
     const ids = this.game.handIds();
     for (const [hid, slots] of Object.entries(this.hands)) {
       for (const s of slots) {
@@ -2602,7 +2636,19 @@ export class View {
       case 'frenzy':
         this.drawEnemyPanel();
         this.drawAction();
-        await this.banner('激昂！', `翼竜の行動値が${RULES.frenzyActionValue}になる`, '#ff7b6b', 650);
+        await this.banner('激昂！', this.game.turnBased ? `次のターンから1ターンに${RULES.turn.frenzyEnemyActs}回行動する` : `翼竜の行動値が${RULES.frenzyActionValue}になる`, '#ff7b6b', 650);
+        return;
+      case 'turnEnd':
+        this.drawAction();
+        this.drawStocks();
+        this.refreshHands();
+        if (e.all) await this.banner('ターン終了', '翼竜が動く！', '#ff8f7a', 380);
+        return;
+      case 'newTurn':
+        this.drawAction();
+        for (const pid of PIDS) this.drawPanel(pid);
+        this.refreshHands();
+        await this.banner(`ターン ${this.game.round}`, `コストが ${RULES.turn.cost} に戻る`, '#e8fbff', 360);
         return;
       default:
     }
@@ -2804,6 +2850,11 @@ export class View {
     for (const slots of Object.values(this.hands)) for (const s of slots) s.key = null;
     this.enemySlots.forEach((m, i) => this.drawEnemySlot(i));
     this.refresh();
+  }
+
+  // 理由だけを出す拒否（ターン制の2回目の引き直しなど）
+  denyText(pid, err) {
+    this.popText(this.hints[pid].mesh.position.x, 690, DENY[err] ?? '使えない', '#d23a3a', 26);
   }
 
   denyItem(i) {
@@ -3015,7 +3066,7 @@ function stockPoint(pid) {
 }
 
 const DENY = {
-  cost: 'コスト不足', full: 'もう置けない', noBullet: '弾倉が空', noArcana: '対象のアルカナがない',
+  rerolled: '引き直しは1ターン1回', cost: 'コスト不足', full: 'もう置けない', noBullet: '弾倉が空', noArcana: '対象のアルカナがない',
 };
 
 function markerX(pos) {

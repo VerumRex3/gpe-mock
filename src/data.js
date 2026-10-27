@@ -12,6 +12,17 @@ export const RULES = {
   actionValue: 4,
   frenzyActionValue: 3, // 激昂後の行動値
   frenzyRatio: 0.5, // 敵HPがこの割合以下で激昂
+  // 二人モードの進行: 'turn' = ターン制（2人ともターン終了で敵が行動） / 'av' = 行動値制（v0.3〜v0.10）
+  // 一人モードは常に行動値制
+  duoProgress: 'turn',
+  turn: {
+    cost: 3, // ターン開始時にこの値に戻る（使い残しは持ち越さない）
+    enemyActs: 1, // 1ターンの敵の行動回数
+    frenzyEnemyActs: 2, // 激昂後
+    // 行動値制とは1ターンの手数が違うので、敵の HP と攻撃はターン制用に別に持つ
+    enemyHp: 140,
+    dmgBonus: 2, // 敵の攻撃カードのダメージに足す
+  },
   stockMax: 5, // 弾倉・魔法陣に置ける数
   arcanaAttrBonus: 5, // アルカナの属性が敵カードの種類と合ったときの追加ダメージ
   parry: {
