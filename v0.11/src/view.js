@@ -42,8 +42,8 @@ const SOLO_COL = '#ffe9a8';
 
 // 今のモード（bindGame で game.mode に合わせる）。描画関数がキー表記や配置を切り替えるのに使う
 let SOLO = false;
-let SPLIT = false;
-let TURN = false; // 二人モードがターン制か // 一人モードで山札がキャラ別（手札 3:3）か
+let SPLIT = false; // 一人モードで山札がキャラ別（手札 3:3）か
+let TURN = false; // 今のモードがターン制か（二人モードのみ。一人モードは常に行動値制）
 const keysOf = (id) => (SOLO ? SOLO_KEYS : KEYS)[id];
 
 // 描画順（renderOrder）
@@ -1835,7 +1835,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText(`${TURN ? '一人＝行動値制／二人＝ターン制' : '行動値制'}カードバトル　戦闘モック v0.11`, w / 2, 398);
+  ctx.fillText(`${RULES.duoProgress === 'turn' ? '一人＝行動値制／二人＝ターン制' : '行動値制'}カードバトル　戦闘モック v0.11`, w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2356,7 +2356,7 @@ export class View {
   applyMode() {
     SOLO = this.game.solo;
     SPLIT = this.game.split;
-    TURN = RULES.duoProgress === 'turn';
+    TURN = !SOLO && RULES.duoProgress === 'turn';
     const ids = this.game.handIds();
     for (const [hid, slots] of Object.entries(this.hands)) {
       for (const s of slots) {
@@ -3021,6 +3021,7 @@ export class View {
   setSolo(solo, split) {
     SOLO = solo;
     SPLIT = split;
+    TURN = !SOLO && RULES.duoProgress === 'turn';
     this.helpPlane.draw(drawHelp);
   }
 
