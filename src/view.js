@@ -71,7 +71,8 @@ const FAN = {
   p2: { cx: 1480, R: 800, step: 0.16, scale: 0.75, reach: 2 },
   solo: { cx: 790, R: 1600, step: 0.1, scale: 0.85, reach: 3.5 },
   duo: { top: 1010, lift: 175, zoom: 0.32 },
-  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.5 },
+  // tuck: 山札キャラ別で、カーソルがない側のキャラのカードの間隔（1 = ふつう）・下げる量・縮める割合・暗くする割合
+  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.5, tuck: { spacing: 0.35, drop: 45, shrink: 0.1, dim: 0.35 } },
 };
 // 掛け合いの吹き出し（キャラの頭上より上、敵カードを大きく出す位置とは重ならない高さ）
 const BUBBLE_X = { p1: POS.p1.x - 36, p2: POS.p2.x + 73 };
@@ -1875,7 +1876,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.21', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.22', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2268,7 +2269,6 @@ export class View {
 
   buildHands() {
     this.hands = { p1: [], p2: [], solo: [] };
-    this.fanRot = { p1: 0, p2: 0, solo: 0 };
     for (const hid of Object.keys(this.hands)) {
       const n = hid === 'solo'
         ? Math.max(RULES.soloHandSize, RULES.handSize * 2, RULES.turn.soloHandSize)
@@ -2356,35 +2356,52 @@ export class View {
     if (this.parry?.active) this.updateParry(dt);
   }
 
-  // 扇: 各枠の位置 u（キャラの境目には隙間を足す）を並べ、扇の向き fanRot を選んでいるカードの方へ回す
-  // 手札が全部 reach の内に収まるよう、扇の向きは [最後の u - reach, reach] の範囲に止める。d は真上からどれだけ離れているか
+  // 扇: 各枠の位置 u を並べ、選んでいるカードの方へ扇を向ける。d は真上からどれだけ離れているか
+  // 手札が全部 reach の内に収まるよう、扇の向きは [最後の u - reach, reach] の範囲に止める
+  // 一人モードの山札キャラ別は、キャラの境目に隙間を足し、カーソルがない側のキャラのカードは詰めて重ね、下げて小さく暗くする（しまっている感じ）
   updateFan(hid, dt) {
     const fan = FAN[hid];
     const cfg = SOLO ? FAN.one : FAN.duo;
     const n = this.game.holder(hid).hand.length;
-    const gap = SPLIT && hid === 'solo' ? cfg.gap : 0;
-    const u = (k) => k + (gap && k >= n / 2 ? gap : 0);
-    const last = u(n - 1);
+    const split = SPLIT && hid === 'solo';
+    const half = n / 2;
+    const side = (k) => (k < half ? 0 : 1);
+    const focus = side(this.cursor[hid]);
+    const tucked = (k) => split && side(k) !== focus;
+    const u = [0];
+    for (let k = 1; k < n; k++) {
+      let step = 1;
+      if (split && side(k) !== side(k - 1)) step = 1 + cfg.gap;
+      else if (tucked(k)) step = cfg.tuck.spacing;
+      u.push(u[k - 1] + step);
+    }
+    const last = u[n - 1];
     const lo = last - fan.reach;
     const hi = fan.reach;
-    const target = lo > hi ? last / 2 : Math.max(lo, Math.min(hi, u(this.cursor[hid])));
-    this.fanRot[hid] += (target - this.fanRot[hid]) * Math.min(1, dt * 0.018);
+    const center = lo > hi ? last / 2 : Math.max(lo, Math.min(hi, u[this.cursor[hid]]));
+    const ease = Math.min(1, dt * 0.018);
     this.hands[hid].forEach((s, i) => {
       if (i >= n) return;
-      const d = u(i) - this.fanRot[hid];
+      // 位置としまい具合は少しずつ目標へ寄せる（並びが変わるときもなめらかに動く）
+      const td = u[i] - center;
+      s.fd = s.fd == null ? td : s.fd + (td - s.fd) * ease;
+      s.tuck = (s.tuck ?? 0) + ((tucked(i) ? 1 : 0) - (s.tuck ?? 0)) * ease;
+      const d = s.fd;
       const a = d * fan.step;
       const sel = this.phase === 'player' && this.cursor[hid] === i && this.game.canAct(hid);
       s.lift += ((sel ? 1 : 0) - s.lift) * Math.min(1, dt * 0.016);
       s.home.x = fan.cx + fan.R * Math.sin(a);
       s.home.y = H - (cfg.top + fan.R * (1 - Math.cos(a)));
       s.group.position.x = s.home.x + s.shake.x;
-      s.group.position.y = s.home.y + s.lift * cfg.lift + s.slide.y;
+      s.group.position.y = s.home.y + s.lift * cfg.lift + s.slide.y - (s.tuck ?? 0) * (cfg.tuck?.drop ?? 0);
       s.group.rotation.z = -a * (1 - s.lift);
-      const sc = fan.scale * (1 + s.lift * cfg.zoom) * (1 - 0.06 * Math.min(1, Math.abs(d)));
+      const sc = fan.scale * (1 + s.lift * cfg.zoom) * (1 - 0.06 * Math.min(1, Math.abs(d))) * (1 - (s.tuck ?? 0) * (cfg.tuck?.shrink ?? 0));
       s.group.scale.set(sc, sc, 1);
+      const shade = 1 - (s.tuck ?? 0) * (cfg.tuck?.dim ?? 0);
+      s.card.mesh.material.color.setRGB(shade, shade, shade);
       s.glow.mesh.visible = sel;
-      // 選んでいるカードを一番手前に、残りは真上に近いほど手前に描く
-      s.card.mesh.renderOrder = sel ? L.cards + 3.5 : L.cards + 3 - Math.min(3, Math.abs(d)) * 0.6;
+      // 選んでいるカードを一番手前に、残りは真上に近いほど手前に、しまっている側は奥に描く
+      s.card.mesh.renderOrder = sel ? L.cards + 3.5 : L.cards + 3 - Math.min(3, Math.abs(d)) * 0.6 - (tucked(i) ? 2 : 0);
       s.glow.mesh.renderOrder = L.cards + 3.4;
     });
   }
@@ -2435,8 +2452,8 @@ export class View {
         s.group.visible = i < n;
         s.key = null;
       });
-      // 扇の向きは updateFan が手札の範囲に合わせて動かすので、ここでは真ん中から始める
-      this.fanRot[hid] = Math.max(0, n - 1) / 2;
+      // 扇の位置としまい具合は updateFan が最初のフレームで目標どおりに置く
+      for (const s of slots) s.fd = s.tuck = null;
     }
     at(this.hints.p1.mesh, FAN.p1.cx, 742);
     at(this.hints.p2.mesh, FAN.p2.cx, 742);
