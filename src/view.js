@@ -83,7 +83,7 @@ const ESLOT = { xs: [538, 747, 956, 1165, 1374], top: 72, w: 186, h: 140 };
 const SLOT = { w: 140, h: 140, cx: 70, cy: 68, r: 34, label: 124 };
 const SIDE = { p1: 62, p2: W - 62, tops: { stock: 740, grave: 858, deck: 968 } };
 // 引き直しはアイテム欄の横（二人モードは 1P が左・2P が右、一人モードは右）。top は丸の中心
-const REROLL = { p1: 803, p2: 1117, solo: 1700, top: 930 };
+const REROLL = { p1: 803, p2: 1117, solo: 1700, top: 1005 };
 // 地面と下の黒帯の境目
 const GROUND = { top: 699, bottom: 781 };
 const MINI_W = 88;
@@ -1869,7 +1869,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.16', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.17', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
