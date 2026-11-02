@@ -73,7 +73,7 @@ const FAN = {
   duo: { top: 1010, lift: 175, zoom: 0.32 },
   // tuck: 山札キャラ別で、カーソルがない側のキャラのカードをしまう並べ方。first は境目のカードから最初のカードまで（扇のカード何枚分か）、
   // R と step はしまう側を並べる小さな円の半径と1枚ごとの角度、spacing は扇の向きを決めるときに数える幅、shrink・dim は縮める・暗くする割合
-  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.1, tuck: { first: 0.8, R: 520, step: 0.2, spacing: 0.7, shrink: 0.03, dim: 0.2 } },
+  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.1, tuck: { first: 0.8, R: 520, step: 0.2, spacing: 0.7, shrink: 0.12, dim: 0.2 } },
 };
 // 掛け合いの吹き出し（キャラの頭上より上、敵カードを大きく出す位置とは重ならない高さ）
 const BUBBLE_X = { p1: POS.p1.x - 36, p2: POS.p2.x + 73 };
@@ -1877,7 +1877,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.24', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.25', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
