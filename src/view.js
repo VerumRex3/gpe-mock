@@ -54,10 +54,11 @@ const L = {
 };
 
 // レイアウト（x は中心、top は上端からの位置。値は画面案 1470×827 を 1920×1080 に拡大したもの）
+// v0.18: 技のエフェクトを中央で大きく出せるよう、味方を左・敵を右に寄せて間を空けた（v0.17 までは 486・722／1325）
 const POS = {
-  p1: { x: 486, feet: 722 },
-  p2: { x: 722, feet: 726 },
-  enemy: { x: 1325, top: 490 },
+  p1: { x: 300, feet: 722 },
+  p2: { x: 540, feet: 726 },
+  enemy: { x: 1560, top: 490 },
 };
 const HAND_X = { p1: [250, 450, 650], p2: [1270, 1470, 1670], solo: [481, 689, 897, 1105, 1313],
   // 一人モード・山札キャラ別: 左3枚がルスカー、右3枚がラティシア
@@ -67,7 +68,7 @@ const HAND_X = { p1: [250, 450, 650], p2: [1270, 1470, 1670], solo: [481, 689, 8
   solo6: [300, 500, 700, 900, 1100, 1300] };
 const TURN_HAND_SCALE = 0.75;
 // 掛け合いの吹き出し（キャラの頭上より上、敵カードを大きく出す位置とは重ならない高さ）
-const BUBBLE_X = { p1: 450, p2: 795 };
+const BUBBLE_X = { p1: POS.p1.x - 36, p2: POS.p2.x + 73 };
 // アイテム欄。二人モードは2人の手札の間、一人モードは手札の右
 const ITEM_BOX = { w: 210, h: 290, duo: { x: 960, top: 930 }, solo: { x: 1530, top: 930 } };
 const CARD_W = 190;
@@ -1869,7 +1870,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.17', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.18', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2131,7 +2132,8 @@ export class View {
     at(this.phasePill.mesh, 790, 168);
     this.scene.add(this.phasePill.mesh);
     this.logPlane = canvasPlane(360, 112, (ctx, w, h) => drawLog(ctx, w, h, []), { layer: L.log });
-    at(this.logPlane.mesh, 460, 268);
+    // 吹き出しと重ならないよう左上（ROUND の下）に置く
+    at(this.logPlane.mesh, 225, 150);
     this.scene.add(this.logPlane.mesh);
   }
 
