@@ -196,6 +196,7 @@ export class Game {
     this.resolveCard(pid, card, ev);
     if (!card.free) this.afterAction(pid, ev);
     this.checkOver(ev);
+    this.skipIfStuck(ev);
     ev.push({ type: 'cost' });
     return { card, events: ev };
   }
@@ -262,6 +263,7 @@ export class Game {
     }
     this.afterAction(pid, ev);
     this.checkOver(ev);
+    this.skipIfStuck(ev);
     ev.push({ type: 'cost' });
     return { events: ev };
   }
@@ -317,6 +319,7 @@ export class Game {
     if (RULES.costGain.reroll) for (const q of this.alivePids()) this.gainCost(q, RULES.costGain.reroll, ev);
     this.tickDecay(ev);
     this.checkOver(ev);
+    this.skipIfStuck(ev);
     ev.push({ type: 'cost' });
     return { events: ev };
   }
@@ -403,6 +406,28 @@ export class Game {
     ev.push({ type: 'av', av: this.av });
     this.tickDecay(ev);
     if (this.av === 0 && !this.over) this.enemyPending = true;
+  }
+
+  // 行動値制で、カード・弾倉／魔法陣・引き直しのどれも使えるものがないか。アイテムは行動値を減らさないので数えない
+  hasMove() {
+    for (const hid of this.handIds()) {
+      if (!this.canAct(hid)) continue;
+      if (!this.rerolled[hid]) return true;
+      const h = this.holder(hid);
+      if (h.hand.some((c) => c && !this.checkCard(this.solo ? c.owner : hid, c))) return true;
+    }
+    const { p1, p2 } = this.players;
+    if (this.canAct('p1') && p1.stock.length && p1.cost >= CARDS.bullet.cost) return true;
+    if (this.canAct('p2') && this.nextUnlit() && p2.cost >= CARDS.arcana.cost) return true;
+    return false;
+  }
+
+  // 打てる手が尽きたら行動値を0にして敵の行動へ進む（v0.33。それまでは行動値が残ったまま進めなくなることがあった）
+  skipIfStuck(ev) {
+    if (this.turnBased || this.over || this.enemyPending || this.hasMove()) return;
+    this.av = 0;
+    this.enemyPending = true;
+    ev.push(log('打てる手がないので敵の行動へ'), { type: 'av', av: 0 });
   }
 
   // 行動値制では RULES.costMax を超えない（ターン制はターンごとに戻るので上限は turn.costMax で別に持つ）
@@ -663,6 +688,7 @@ export class Game {
     this.av = this.avMax;
     this.enemyPending = false;
     ev.push({ type: 'av', av: this.av }, { type: 'cost' }, { type: 'status', target: 'p1' }, { type: 'status', target: 'p2' });
+    this.skipIfStuck(ev);
     return ev;
   }
 

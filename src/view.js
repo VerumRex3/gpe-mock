@@ -1938,7 +1938,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.32', w / 2, 398);
+  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.33', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
