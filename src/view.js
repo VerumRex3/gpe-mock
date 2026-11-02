@@ -93,7 +93,8 @@ const SIDE = { p1: 62, p2: W - 62, tops: { stock: 740, grave: 858, deck: 968 } }
 // 引き直しはアイテム欄の横（二人モードは 1P が左・2P が右、一人モードは右）。top は丸の中心
 const REROLL = { p1: 803, p2: 1117, solo: 1700, top: 1005 };
 // コスト表示（今のコスト／上限）。二人モードは手札のすぐ横（1P は右下・2P は左下。引き直しの上）、一人モードは手札の右下に2人分並べる
-const COST_BOX = { duo: { p1: 803, p2: 1117, top: 880 }, solo: { p1: 1250, p2: 1350, top: 995 }, w: 110, h: 124 };
+// 一人モードはコストを2人で共有するので、p1 の枠に共有の分を1つだけ出す（v0.31）
+const COST_BOX = { duo: { p1: 803, p2: 1117, top: 880 }, solo: { p1: 1310, p2: 1310, top: 995 }, w: 110, h: 124 };
 // 地面と下の黒帯の境目
 const GROUND = { top: 699, bottom: 781 };
 const MINI_W = 88;
@@ -114,10 +115,12 @@ function helpRows() {
         ? `好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。済んだら「ターン終了」（${SOLO_KEY.end}）で敵が1回行動し（激昂後は2回）、次のターンになる。`
         : `2人とも好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。自分の番が済んだら「ターン終了」（1P は ${KEYS.p1.end}、2P は ${KEYS.p2.end}）。2人とも押すと敵が1回行動し（激昂後は2回）、次のターンになる。`],
       ['手札', `ターン開始時に残った手札を捨て、${SOLO ? `${RULES.turn.soloHandSize}枚${SPLIT ? '（ルスカーとラティシア半分ずつ）' : ''}` : `1人${RULES.turn.handSize}枚`}引く。使ったカードの枠はそのターンは空のまま。引き直しは1ターンに1回で、残っている枠だけ引き直す。`],
-      ['コスト', `弾丸・アルカナのアイコンの左上の赤い数字。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。${!SOLO && RULES.turn.refill ? 'カードを使うと、空いた枠にすぐ1枚引く。' : ''}`],
+      ['コスト', `手札のそばの「今／上限」。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。${!SOLO && RULES.turn.refill ? 'カードを使うと、空いた枠にすぐ1枚引く。' : ''}`],
     ] : [
       ['行動値', `カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテムは行動値を消費しない。`],
-      ['コスト', `弾丸・アルカナのアイコンの左上の赤い数字。初期値 ${RULES.startCost}、上限 ${RULES.costMax}。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが' : 'カードを使うと、相方のコストが'}${RULES.costGain.partner}回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+${RULES.costGain.reroll}、敵が行動すると2人とも+${RULES.costGain.enemy}。`],
+      ['コスト', SOLO && RULES.soloCost.shared
+        ? `手札の右下の「今／上限」。2人で共有する（初期値 ${RULES.soloCost.start}、上限 ${RULES.soloCost.max}）。回復はかけら（½）単位で、半円がかけら1つ。直前と違うキャラのカードを使うと+${costText(RULES.costGain.partner)}（片方のキャラばかり使わないように）、手札を引き直すと+${costText(RULES.costGain.reroll * 2)}、敵が行動すると+${costText(RULES.costGain.enemy * 2)}。`
+        : `手札のそばの「今／上限」。初期値 ${RULES.startCost}、上限 ${RULES.costMax}。カードを使うと、相方のコストが${costText(RULES.costGain.partner)}回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+${costText(RULES.costGain.reroll)}、敵が行動すると2人とも+${costText(RULES.costGain.enemy)}。`],
     ]),
     ['掛け合い', `敵が動くとき、使うカードの種類（攻撃・防御・特殊）に合わせて2人が一言交わす（台詞は仮）。${TURN ? '' : '行動値制では、敵が前回と違う種類のカードを使ったときだけ。'}`],
     ['取り消し', SOLO
@@ -1454,14 +1457,25 @@ function costText(a) {
 }
 
 // コスト: 白い丸に赤で「今／上限」。外側の輪と名札がキャラの色。上限を超えているとき（集中など）も、そのまま出す
-function drawCostBox(ctx, w, h, pid, cost, max, down) {
+function drawCostBox(ctx, w, h, pid, cost, max, down, shared = false) {
   const cx = w / 2;
   const cy = 50;
   ctx.save();
   if (down) ctx.globalAlpha = 0.45;
   ctx.beginPath();
   ctx.arc(cx, cy, 46, 0, Math.PI * 2);
-  ctx.fillStyle = PCOL[pid];
+  // 共有のときは外側の輪を2人の色で半分ずつ
+  if (shared) {
+    ctx.fillStyle = PCOL.p1;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, 46, -Math.PI / 2, Math.PI / 2);
+    ctx.closePath();
+    ctx.fillStyle = PCOL.p2;
+  } else {
+    ctx.fillStyle = PCOL[pid];
+  }
   ctx.fill();
   ctx.beginPath();
   ctx.arc(cx, cy, 40, 0, Math.PI * 2);
@@ -1501,10 +1515,10 @@ function drawCostBox(ctx, w, h, pid, cost, max, down) {
   }
   ctx.textAlign = 'center';
   ctx.font = font(13);
-  const nm = NAME[pid];
+  const nm = shared ? '2人で共有' : NAME[pid];
   const pw = ctx.measureText(nm).width + 16;
   rr(ctx, cx - pw / 2, h - 24, pw, 20, 10);
-  ctx.fillStyle = PCOL[pid];
+  ctx.fillStyle = shared ? '#3a3226' : PCOL[pid];
   ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.fillText(nm, cx, h - 13);
@@ -1924,7 +1938,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.30', w / 2, 398);
+  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.31', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2547,6 +2561,7 @@ export class View {
     for (const pid of PIDS) at(this.trash[pid].mesh, SOLO ? REROLL.solo : REROLL[pid], REROLL.top + SLOT.h / 2 - SLOT.cy);
     const cbPos = SOLO ? COST_BOX.solo : COST_BOX.duo;
     for (const pid of PIDS) at(this.costBoxes[pid].mesh, cbPos[pid], cbPos.top);
+    this.costBoxes.p2.mesh.visible = !this.game.pool;
     this.piles.p2.deck.mesh.visible = this.piles.p2.grave.mesh.visible = !SOLO || SPLIT;
     const box = SOLO ? ITEM_BOX.solo : ITEM_BOX.duo;
     at(this.itemPlane.mesh, box.x, box.top);
@@ -2639,13 +2654,17 @@ export class View {
     pl.deck.draw((ctx, w, h) => drawDeckSlot(ctx, w, h, pile.deck.length));
     pl.grave.draw((ctx, w, h) => drawGraveSlot(ctx, w, h, pile.discard));
     this.stocks[pid].draw((ctx, w, h) => drawStockSlot(ctx, w, h, pid, p, this.phase === 'player' && this.game.canAct(pid)));
-    this.costBoxes[pid].draw((ctx, w, h) => drawCostBox(ctx, w, h, pid, p.cost, this.costMax(), p.hp <= 0));
+    // 共有のときは p1 の枠に1つだけ（倒れていても、もう一人が生きていれば使える）
+    const shared = !!this.game.pool;
+    if (shared && pid === 'p2') return;
+    const down = shared ? !this.game.alivePids().length : p.hp <= 0;
+    this.costBoxes[pid].draw((ctx, w, h) => drawCostBox(ctx, w, h, pid, p.cost, this.costMax(), down, shared));
   }
 
   // コストの上限: 行動値制は RULES.costMax、ターン制はこのターンの予算
   costMax() {
     const g = this.game;
-    return g.turnBased ? g.turnCost(g.round) : RULES.costMax || '∞';
+    return g.turnBased ? g.turnCost(g.round) : g.costCap();
   }
 
   // コスト表示の画面上の位置（回復の演出に使う）
@@ -2750,10 +2769,11 @@ export class View {
         this.drawPanel(e.pid);
         this.refreshHands();
         // コスト表示の上に「+2」を出し、輪を光らせる
-        const cp = this.costPoint(e.pid);
+        const box = this.game.pool ? 'p1' : e.pid;
+        const cp = this.costPoint(box);
         this.popText(cp.x, cp.top - 56, `+${costText(e.amount)}`, '#e02a24', 40);
         this.ring(cp.x, cp.top, '#ff8a7a');
-        const m = this.costBoxes[e.pid].mesh;
+        const m = this.costBoxes[box].mesh;
         this.killTweens(m.scale);
         m.scale.set(1.18, 1.18, 1);
         this.tween(m.scale, { x: 1, y: 1 }, 260, 'out');

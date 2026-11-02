@@ -74,6 +74,9 @@ export class Game {
     this.av = this.avMax;
     this.enemyPending = false; // 行動値が0になった（ターン制では2人ともターン終了した）ので、敵の行動待ち
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
+    // 一人モード（行動値制）はコストを2人で共有する（v0.31）。players の cost は共有の pool を指す
+    this.pool = this.solo && !this.turnBased && RULES.soloCost.shared ? { cost: RULES.soloCost.start } : null;
+    this.linkPool();
     if (this.turnBased) for (const p of Object.values(this.players)) p.cost = this.turnCost(1);
     this.shared = null;
     if (this.split) {
@@ -321,8 +324,8 @@ export class Game {
   // 敵が次に行動するまでの間、行動の直前の状態を積んでおく。取り消せるのは一番新しい行動だけで、それが自分の行動のとき
   // 一人モードでは操作する人が1人なので、誰の行動でも 'solo' として積む。二人モードのアイテムは 'item' で、どちらも取り消せない
   saveUndo(who) {
-    const { round, avMax, av, enemy, players, shared, items, ended, rerolled } = this;
-    this.undoStack.push({ who: this.solo ? 'solo' : who, state: structuredClone({ round, avMax, av, enemy, players, shared, items, ended, rerolled }) });
+    const { round, avMax, av, enemy, players, shared, items, ended, rerolled, pool, lastActor } = this;
+    this.undoStack.push({ who: this.solo ? 'solo' : who, state: structuredClone({ round, avMax, av, enemy, players, shared, items, ended, rerolled, pool, lastActor }) });
   }
 
   // ---------------- ターン制
@@ -357,6 +360,7 @@ export class Game {
     if (!this.undoStack.length) return { error: 'noUndo' };
     if (this.undoStack.at(-1).who !== who) return { error: 'notYours' };
     Object.assign(this, this.undoStack.pop().state);
+    this.linkPool();
     return { events: [log(`${who === 'solo' ? '' : `${NAME[who]} `}取り消し`)] };
   }
 
@@ -384,7 +388,15 @@ export class Game {
       this.tickDecay(ev);
       return;
     }
-    if (partnerGain && this.alive(this.other(pid))) this.gainCost(this.other(pid), RULES.costGain.partner, ev);
+    // 相方の回復は、片方のキャラのカードばかり使わせないためのもの。共有のコストでは「直前と違うキャラのカードを使った」ときだけ回復する
+    if (partnerGain) {
+      if (this.pool) {
+        if (this.lastActor && this.lastActor !== pid) this.gainCost(pid, RULES.costGain.partner, ev);
+        this.lastActor = pid;
+      } else if (this.alive(this.other(pid))) {
+        this.gainCost(this.other(pid), RULES.costGain.partner, ev);
+      }
+    }
     this.av = Math.max(0, this.av - 1);
     ev.push({ type: 'av', av: this.av });
     this.tickDecay(ev);
@@ -392,9 +404,24 @@ export class Game {
   }
 
   // 行動値制では RULES.costMax を超えない（ターン制はターンごとに戻るので上限は turn.costMax で別に持つ）
+  // 共有のコストのとき、2人の cost を pool に向ける（取り消しで players を戻したあとも張り直す）
+  linkPool() {
+    if (!this.pool) return;
+    const pool = this.pool;
+    for (const p of Object.values(this.players)) {
+      Object.defineProperty(p, 'cost', { get: () => pool.cost, set: (v) => { pool.cost = v; }, enumerable: true, configurable: true });
+    }
+  }
+
+  // コストの上限: 共有なら RULES.soloCost.max、それ以外の行動値制は RULES.costMax、ターン制は上限なし
+  costCap() {
+    if (this.pool) return RULES.soloCost.max;
+    return !this.turnBased && RULES.costMax ? RULES.costMax : Infinity;
+  }
+
   gainCost(pid, amount, ev) {
     const p = this.players[pid];
-    const max = !this.turnBased && RULES.costMax ? RULES.costMax : Infinity;
+    const max = this.costCap();
     const gained = Math.max(0, Math.min(amount, max - p.cost));
     p.cost += gained;
     if (gained) ev.push({ type: 'costGain', pid, amount: gained });

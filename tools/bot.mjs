@@ -58,6 +58,8 @@ function candidates(g) {
           break;
         default: s = 1;
       }
+      // 共有コストでは、直前と違うキャラのカードを使うと回復するので少し優先する
+      if (g.pool && g.lastActor && pid !== g.lastActor && !c.free) s += 0.8;
       out.push({ s, f: () => g.playCard(hid, slot) });
     });
     if (!(g.turnBased && g.rerolled[hid])) out.push({ s: 1.2, f: () => g.reroll(hid) });
