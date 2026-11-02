@@ -408,13 +408,11 @@ export class Game {
     if (this.av === 0 && !this.over) this.enemyPending = true;
   }
 
-  // 行動値制で、カード・弾倉／魔法陣・引き直しのどれも使えるものがないか。アイテムは行動値を減らさないので数えない
-  hasMove() {
+  // 行動値制で、使えるカード・弾倉／魔法陣があるか（引き直しとアイテムは数えない）
+  hasPlay() {
     for (const hid of this.handIds()) {
       if (!this.canAct(hid)) continue;
-      if (!this.rerolled[hid]) return true;
-      const h = this.holder(hid);
-      if (h.hand.some((c) => c && !this.checkCard(this.solo ? c.owner : hid, c))) return true;
+      if (this.holder(hid).hand.some((c) => c && !this.checkCard(this.solo ? c.owner : hid, c))) return true;
     }
     const { p1, p2 } = this.players;
     if (this.canAct('p1') && p1.stock.length && p1.cost >= CARDS.bullet.cost) return true;
@@ -422,12 +420,26 @@ export class Game {
     return false;
   }
 
-  // 打てる手が尽きたら行動値を0にして敵の行動へ進む（v0.33。それまでは行動値が残ったまま進めなくなることがあった）
+  // 出せるカードがなく、引き直しだけ残っている（一人モードはここで「引き直すか」を聞く。v0.34）
+  onlyReroll() {
+    return !this.turnBased && !this.over && !this.enemyPending && !this.hasPlay()
+      && this.handIds().some((hid) => this.canAct(hid) && !this.rerolled[hid]);
+  }
+
+  // 打てる手（カード・弾倉／魔法陣・引き直し）が尽きたら行動値を0にして敵の行動へ進む。アイテムは行動値を減らさないので数えない
+  // v0.33。それまでは行動値が残ったまま進めなくなることがあった
   skipIfStuck(ev) {
-    if (this.turnBased || this.over || this.enemyPending || this.hasMove()) return;
+    if (this.turnBased || this.over || this.enemyPending || this.hasPlay() || this.onlyReroll()) return;
+    this.pass(ev, '打てる手がないので敵の行動へ');
+  }
+
+  // 「引き直さない」を選んだとき。行動値を0にして敵の行動へ
+  pass(ev = [], text = '行動を終えた') {
+    if (this.turnBased || this.over || this.enemyPending) return null;
     this.av = 0;
     this.enemyPending = true;
-    ev.push(log('打てる手がないので敵の行動へ'), { type: 'av', av: 0 });
+    ev.push(log(text), { type: 'av', av: 0 });
+    return { events: ev };
   }
 
   // 行動値制では RULES.costMax を超えない（ターン制はターンごとに戻るので上限は turn.costMax で別に持つ）

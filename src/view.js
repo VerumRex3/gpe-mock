@@ -117,7 +117,7 @@ function helpRows() {
       ['手札', `ターン開始時に残った手札を捨て、${SOLO ? `${RULES.turn.soloHandSize}枚${SPLIT ? '（ルスカーとラティシア半分ずつ）' : ''}` : `1人${RULES.turn.handSize}枚`}引く。使ったカードの枠はそのターンは空のまま。引き直しは1ターンに1回で、残っている枠だけ引き直す。`],
       ['コスト', `手札のそばの「今／上限」。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。${!SOLO && RULES.turn.refill ? 'カードを使うと、空いた枠にすぐ1枚引く。' : ''}`],
     ] : [
-      ['行動値', `カードは使ったその場で発動する。カードを使うたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテム・手札の引き直しは行動値を消費しない。引き直しはコストもかからないが、敵が次に行動するまでに1回だけ。`],
+      ['行動値', `カードは使ったその場で発動する。カードを使うたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテム・手札の引き直しは行動値を消費しない。引き直しはコストもかからないが、敵が次に行動するまでに1回だけ。出せるカードがなくなると、引き直すか（いいえなら敵の行動へ）を聞かれる。引き直しも使い終わっていれば、行動値が残っていても敵が行動する。`],
       ['コスト', SOLO && RULES.soloCost.shared
         ? `手札の右下の「今／上限」。2人で共有する（初期値 ${RULES.soloCost.start}、上限 ${RULES.soloCost.max}）。回復はかけら（½）単位で、半円がかけら1つ。直前と違うキャラのカードを使うと+${costText(RULES.costGain.partner)}（片方のキャラばかり使わないように）、敵が行動すると+${costText(RULES.costGain.enemy * 2)}。`
         : `手札のそばの「今／上限」。初期値 ${RULES.startCost}、上限 ${RULES.costMax}。カードを使うと、相方のコストが${costText(RULES.costGain.partner)}回復する（行動値を消費しないカードを除く）。敵が行動すると2人とも+${costText(RULES.costGain.enemy)}。`],
@@ -1938,7 +1938,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.33', w / 2, 398);
+  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.34', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -1984,6 +1984,45 @@ function drawResult(ctx, w, h, info, ready) {
   ctx.font = font(20, 500);
   ctx.fillStyle = '#8fa7ad';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 830);
+}
+
+function drawAsk(ctx, w, h, sel) {
+  ctx.fillStyle = 'rgba(8, 12, 16, 0.55)';
+  ctx.fillRect(0, 0, w, h);
+  const bw = 820;
+  const bh = 330;
+  const x = (w - bw) / 2;
+  const y = 300;
+  rr(ctx, x, y, bw, bh, 28);
+  ctx.fillStyle = 'rgba(16, 26, 32, 0.96)';
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = C.gold;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = font(48);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('出せるカードがなくなりました！', w / 2, y + 74);
+  ctx.font = font(26, 500);
+  ctx.fillStyle = '#b9d3d8';
+  ctx.fillText('手札を引き直しますか？（いいえ ＝ そのまま敵の行動へ）', w / 2, y + 134);
+  ['はい', 'いいえ'].forEach((label, i) => {
+    const on = i === sel;
+    const bx = w / 2 + (i ? 30 : -270);
+    rr(ctx, bx, y + 180, 240, 76, 18);
+    ctx.fillStyle = on ? C.gold : 'rgba(255, 255, 255, 0.08)';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = on ? '#fff3c4' : 'rgba(255, 255, 255, 0.3)';
+    ctx.stroke();
+    ctx.font = font(36);
+    ctx.fillStyle = on ? C.ink : '#e8eef0';
+    ctx.fillText(label, bx + 120, y + 219);
+  });
+  ctx.font = font(20, 500);
+  ctx.fillStyle = '#8fa7ad';
+  ctx.fillText('A / D または ← / → で選ぶ　SPACE / ENTER で決定　1〜3 でアイテムも使える', w / 2, y + bh + 36);
 }
 
 function drawHelp(ctx, w, h) {
@@ -3261,10 +3300,17 @@ export class View {
     this.helpPlane.draw(drawHelp);
   }
 
+  // 出せるカードがなくなったときの「引き直すか」（sel: 0 = はい、1 = いいえ）
+  showAsk(sel) {
+    this.overlayState = { kind: 'ask' };
+    this.updateStartReady(sel);
+  }
+
   updateStartReady(ready) {
     const st = this.overlayState;
     if (!st) return;
-    this.overlay.draw((ctx, w, h) => (st.kind === 'title' ? drawTitle(ctx, w, h, ready) : drawResult(ctx, w, h, st.info, ready)));
+    const draw = { title: drawTitle, ask: drawAsk }[st.kind];
+    this.overlay.draw((ctx, w, h) => (draw ? draw(ctx, w, h, ready) : drawResult(ctx, w, h, st.info, ready)));
     const m = this.overlay.mesh;
     if (!m.visible) {
       m.visible = true;
@@ -3277,7 +3323,8 @@ export class View {
     const m = this.overlay.mesh;
     this.overlayState = null;
     await this.tween(m.material, { opacity: 0 }, 260, 'in');
-    m.visible = false;
+    // 消えている間に別の表示（引き直しの確認など）が出たら残す
+    if (!this.overlayState) m.visible = false;
   }
 
   toggleHelp() {

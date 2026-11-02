@@ -52,7 +52,7 @@ document.getElementById('boot')?.remove();
 
 const cursor = { p1: 0, p2: 0, solo: 0 };
 const startReady = { p1: false, p2: false };
-// title / intro / player / enemy / parry / ending / result
+// title / intro / player / ask / enemy / parry / ending / result
 let mode = 'title';
 // ?solo を付けると一人モードで始まる（タイトルで切り替えられる）
 const params = new URLSearchParams(location.search);
@@ -63,6 +63,8 @@ let soloDeck = ['mixed', 'split'].includes(params.get('deck')) ? params.get('dec
 let soloProgress = ['turn', 'av'].includes(params.get('progress')) ? params.get('progress') : RULES.soloProgress;
 const newGame = () => new Game(Math.random, playMode, { soloDeck, soloProgress });
 let game = newGame();
+// 「出せるカードがなくなりました」の選択（0 = はい＝引き直す、1 = いいえ＝敵の行動へ）
+let askSel = 0;
 // 行動値制で、最後に掛け合いを出した敵のカードの種類
 let lastBanterKind = null;
 
@@ -99,6 +101,38 @@ function onAction(pid, act, arg) {
     if (act === 'use') view.parryStop(game.solo ? 'p1' : pid);
   } else if (mode === 'player') {
     playerAction(pid, act, arg);
+  } else if (mode === 'ask') {
+    askAction(pid, act, arg);
+  }
+}
+
+// 一人モード（行動値制）で、出せるカードがなく引き直しだけ残ったら、引き直すかを聞く（v0.34）
+function checkAsk() {
+  if (mode !== 'player' || !game.solo || !game.onlyReroll()) return;
+  mode = 'ask';
+  askSel = 0;
+  view.showAsk(askSel);
+}
+
+function askAction(pid, act, arg) {
+  if (act === 'left' || act === 'right') {
+    askSel = act === 'left' ? 0 : 1;
+    view.updateStartReady(askSel);
+    return;
+  }
+  // アイテムと取り消しは、ダイアログを閉じてそのまま受け付ける
+  if (act !== 'use' && act !== 'item' && act !== 'undo') return;
+  view.hideOverlay();
+  mode = 'player';
+  if (act !== 'use') {
+    playerAction(pid, act, arg);
+    checkAsk();
+  } else if (askSel === 0) {
+    playerAction('solo', 'reroll');
+  } else {
+    view.enqueue(game.pass().events);
+    view.refresh();
+    afterPlayerAction();
   }
 }
 
@@ -225,6 +259,12 @@ async function afterPlayerAction() {
     mode = 'enemy';
     await view.idle();
     await enemyPhase();
+    return;
+  }
+  // 引き直すかを聞くのは、使ったカードの演出が終わってから
+  if (game.solo && game.onlyReroll()) {
+    await view.idle();
+    checkAsk();
   }
 }
 
@@ -253,6 +293,7 @@ async function enemyPhase() {
   fixCursors();
   mode = 'player';
   view.setPhase('player');
+  checkAsk();
 }
 
 async function enemyAction() {
