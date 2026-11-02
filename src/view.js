@@ -61,14 +61,15 @@ const POS = {
   enemy: { x: 1560, top: 490 },
 };
 // 手札はリボルバーのシリンダーのように、画面の下に中心がある円の上に扇状に並べる（v0.19〜）
-// 選んでいるカードが真上に来て、持ち上がって大きくなる。左右キーで全体が回り、端まで回ったカードは薄くなって反対の端から出てくる
+// 選んでいるカードの方へ扇が回り、選んだカードは起き上がって持ち上がり、大きくなる。ループはしない（端で止まる）
+// 扇は手札が全部収まる範囲（真上から左右 reach 枚分）でだけ回すので、端のカードを選んだときは真上まで来ずにその場で起き上がる
 // cx は扇の中心の x、R は円の半径、step は隣のカードとの角度、scale はカードの大きさ
 // top は持ち上げていない真上のカードの中心の高さ、lift は選んだカードを押し上げる量、zoom は選んだときに大きくなる割合
 // 二人モードは低めに置いて頭だけ見せ、選んだカードが下から押し上げられる。一人モードの山札キャラ別は、ルスカーとラティシアの間に gap 枚分の隙間を空ける
 const FAN = {
-  p1: { cx: 440, R: 800, step: 0.16, scale: 0.75 },
-  p2: { cx: 1480, R: 800, step: 0.16, scale: 0.75 },
-  solo: { cx: 790, R: 1600, step: 0.1, scale: 0.85 },
+  p1: { cx: 440, R: 800, step: 0.16, scale: 0.75, reach: 2 },
+  p2: { cx: 1480, R: 800, step: 0.16, scale: 0.75, reach: 2 },
+  solo: { cx: 790, R: 1600, step: 0.1, scale: 0.85, reach: 3.5 },
   duo: { top: 1010, lift: 175, zoom: 0.32 },
   one: { top: 935, lift: 80, zoom: 0.2, gap: 0.5 },
 };
@@ -1874,7 +1875,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.20', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.21', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2355,28 +2356,22 @@ export class View {
     if (this.parry?.active) this.updateParry(dt);
   }
 
-  // 扇（シリンダー）: 各枠の円周上の位置 u（キャラの境目には隙間を足す）を、カーソルの位置へ近い向きに回す
-  // d はカーソルから円周上でどれだけ離れているか。端（lo と lo + len）に近づいたカードは薄くして、反対の端へ回り込ませる
+  // 扇: 各枠の位置 u（キャラの境目には隙間を足す）を並べ、扇の向き fanRot を選んでいるカードの方へ回す
+  // 手札が全部 reach の内に収まるよう、扇の向きは [最後の u - reach, reach] の範囲に止める。d は真上からどれだけ離れているか
   updateFan(hid, dt) {
     const fan = FAN[hid];
     const cfg = SOLO ? FAN.one : FAN.duo;
     const n = this.game.holder(hid).hand.length;
     const gap = SPLIT && hid === 'solo' ? cfg.gap : 0;
-    const half = n / 2;
-    // 山札キャラ別は、ルスカーの最後とラティシアの最初の間、ラティシアの最後とルスカーの最初の間（回り込み側）に隙間
-    const u = (k) => k + (gap && k >= half ? gap : 0);
-    const len = n + gap * 2;
-    const wrap = (v) => ((v % len) + len) % len;
-    const target = u(this.cursor[hid]);
-    const diff = wrap(target - this.fanRot[hid] + len / 2) - len / 2;
-    this.fanRot[hid] = wrap(this.fanRot[hid] + diff * Math.min(1, dt * 0.018));
-    const lo = gap ? -len / 2 + 0.35 : -Math.floor(n / 2) - 0.5;
-    const fade = gap ? 0.3 : 0.5;
+    const u = (k) => k + (gap && k >= n / 2 ? gap : 0);
+    const last = u(n - 1);
+    const lo = last - fan.reach;
+    const hi = fan.reach;
+    const target = lo > hi ? last / 2 : Math.max(lo, Math.min(hi, u(this.cursor[hid])));
+    this.fanRot[hid] += (target - this.fanRot[hid]) * Math.min(1, dt * 0.018);
     this.hands[hid].forEach((s, i) => {
       if (i >= n) return;
-      const d = wrap(u(i) - this.fanRot[hid] - lo) + lo;
-      const edge = Math.min(d - lo, lo + len - d);
-      const alpha = Math.max(0, Math.min(1, edge / fade));
+      const d = u(i) - this.fanRot[hid];
       const a = d * fan.step;
       const sel = this.phase === 'player' && this.cursor[hid] === i && this.game.canAct(hid);
       s.lift += ((sel ? 1 : 0) - s.lift) * Math.min(1, dt * 0.016);
@@ -2387,7 +2382,6 @@ export class View {
       s.group.rotation.z = -a * (1 - s.lift);
       const sc = fan.scale * (1 + s.lift * cfg.zoom) * (1 - 0.06 * Math.min(1, Math.abs(d)));
       s.group.scale.set(sc, sc, 1);
-      s.card.mesh.material.opacity = alpha;
       s.glow.mesh.visible = sel;
       // 選んでいるカードを一番手前に、残りは真上に近いほど手前に描く
       s.card.mesh.renderOrder = sel ? L.cards + 3.5 : L.cards + 3 - Math.min(3, Math.abs(d)) * 0.6;
@@ -2441,7 +2435,8 @@ export class View {
         s.group.visible = i < n;
         s.key = null;
       });
-      this.fanRot[hid] = (this.cursor[hid] ?? 0) + (SPLIT && hid === 'solo' && (this.cursor[hid] ?? 0) >= n / 2 ? FAN.one.gap : 0);
+      // 扇の向きは updateFan が手札の範囲に合わせて動かすので、ここでは真ん中から始める
+      this.fanRot[hid] = Math.max(0, n - 1) / 2;
     }
     at(this.hints.p1.mesh, FAN.p1.cx, 742);
     at(this.hints.p2.mesh, FAN.p2.cx, 742);

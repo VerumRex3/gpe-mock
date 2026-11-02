@@ -135,21 +135,23 @@ function rebuildSolo() {
   }
 }
 
-// ターン制では使ったカードの枠が空くので、カーソルは空でない枠へ動かす
+// カーソルは端で止まる（手札の扇はループしない）。ターン制では使ったカードの枠が空くので、空でない枠へ飛ばす
 function moveCursor(hid, step) {
   const hand = game.holder(hid).hand;
-  const n = hand.length;
-  for (let k = 1; k <= n; k++) {
-    const i = (cursor[hid] + step * k + n * k) % n;
+  for (let i = cursor[hid] + step; i >= 0 && i < hand.length; i += step) {
     if (hand[i]) {
       cursor[hid] = i;
-      return;
+      return true;
     }
   }
+  return false;
 }
 
+// 今の枠が空なら、右の空でない枠へ、なければ左へ
 function fixCursors() {
-  for (const hid of game.handIds()) if (!game.holder(hid).hand[cursor[hid]]) moveCursor(hid, 1);
+  for (const hid of game.handIds()) {
+    if (!game.holder(hid).hand[cursor[hid]] && !moveCursor(hid, 1)) moveCursor(hid, -1);
+  }
 }
 
 function playerAction(pid, act, arg) {
