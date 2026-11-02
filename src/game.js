@@ -19,7 +19,10 @@ function shuffle(arr, rng) {
 let uid = 0;
 // 弾丸は boons（付いた加護）、アルカナは aspect（付いた属性）を持ち、捨て札に行っても引き継ぐ
 const makeCard = (id) => ({ uid: ++uid, id, ...CARDS[id], boons: [], aspect: null });
-const makeEnemyCard = (id) => ({ uid: ++uid, id, ...ENEMY.cards[id], maxHp: ENEMY.cards[id].hp, broken: false });
+const makeEnemyCard = (id, hpBonus = 0) => {
+  const hp = ENEMY.cards[id].hp + hpBonus;
+  return { uid: ++uid, id, ...ENEMY.cards[id], hp, maxHp: hp, broken: false };
+};
 
 export function grade(acc) {
   if (acc >= RULES.parry.perfectAcc) return 'PERFECT';
@@ -40,41 +43,46 @@ export function describeEnemyCard(card, dmg = card.dmg) {
 }
 
 // mode: 'duo' = 2人でそれぞれの手札を操作 / 'solo' = 1人で2人分の手札（shared）を操作
-// 一人モードの山札 soloDeck: 'mixed' = 2人のデッキを1つに混ぜる / 'split' = 山札はキャラ別のまま、手札はルスカー3枚＋ラティシア3枚
+// 一人モードの山札 soloDeck: 'mixed' = 2人のデッキを1つに混ぜる / 'split' = 山札はキャラ別のまま、手札はルスカー＋ラティシア同数
+// 一人モードの進行 soloProgress: 'av' = 行動値制 / 'turn' = ターン制（二人モードは RULES.duoProgress）
 // 手札の持ち主は 'p1' / 'p2'（二人モード）か 'solo'（一人モード）。カードの効果やコストはカードの owner のキャラに付く
 export class Game {
-  constructor(rng = Math.random, mode = 'duo', { soloDeck = RULES.soloDeck } = {}) {
+  constructor(rng = Math.random, mode = 'duo', { soloDeck = RULES.soloDeck, soloProgress = RULES.soloProgress } = {}) {
     this.rng = rng;
     this.mode = mode;
     this.solo = mode === 'solo';
     this.split = this.solo && soloDeck === 'split';
-    // 二人モードはターン制（RULES.duoProgress）。一人モードは行動値制のまま
-    this.turnBased = !this.solo && RULES.duoProgress === 'turn';
+    this.turnBased = (this.solo ? soloProgress : RULES.duoProgress) === 'turn';
+    // 1つの山札から引く手札の枚数。二人モードは1人あたり、一人モード・キャラ別は1キャラあたり（手札全体はその2倍）
+    const t = RULES.turn;
+    if (!this.solo) this.handSize = this.turnBased ? t.handSize : RULES.handSize;
+    else if (this.split) this.handSize = this.turnBased ? t.soloHandSize / 2 : RULES.handSize;
+    else this.handSize = this.turnBased ? t.soloHandSize : RULES.soloHandSize;
     this.ended = { p1: false, p2: false }; // ターン制: 「ターン終了」を押したか
     this.rerolled = { p1: false, p2: false }; // ターン制: このターンに引き直したか（1ターン1回）
     this.enemyActsLeft = 0; // ターン制: このターンに敵があと何回行動するか
     this.round = 1; // 敵が行動するたびに進む
     this.over = null; // 'win' | 'lose'
     this.winBy = null; // 'hp' | 'cards'
-    const enemyHp = this.turnBased ? RULES.turn.enemyHp : RULES.enemyMaxHp;
+    const enemyHp = this.turnBased ? this.turnRule('enemyHp') : RULES.enemyMaxHp;
     this.enemy = {
       name: ENEMY.name, hp: enemyHp, maxHp: enemyHp, block: 0,
       strength: 0, frenzy: false, decay: 0, resist: 0,
-      cards: ENEMY.lineup.map(makeEnemyCard),
+      cards: ENEMY.lineup.map((id) => makeEnemyCard(id, this.turnBased ? this.turnRule('cardHpBonus') : 0)),
     };
     this.avMax = RULES.actionValue;
     this.av = this.avMax;
     this.enemyPending = false; // 行動値が0になった（ターン制では2人ともターン終了した）ので、敵の行動待ち
     this.players = { p1: this.makePlayer('p1'), p2: this.makePlayer('p2') };
-    if (this.turnBased) for (const p of Object.values(this.players)) p.cost = RULES.turn.cost;
+    if (this.turnBased) for (const p of Object.values(this.players)) p.cost = this.turnCost(1);
     this.shared = null;
     if (this.split) {
-      // 手札の左3枚がルスカー、右3枚がラティシア。使った枠はその持ち主の山札から引くので、いつも 3:3
+      // 手札の左半分がルスカー、右半分がラティシア。枠はいつもその持ち主の山札から引くので、いつも同数
       this.shared = { hand: [...this.players.p1.hand, ...this.players.p2.hand] };
       this.players.p1.hand = [];
       this.players.p2.hand = [];
     } else if (this.solo) {
-      this.shared = this.makePile([...DECKS.p1, ...DECKS.p2], RULES.soloHandSize);
+      this.shared = this.makePile([...DECKS.p1, ...DECKS.p2], this.handSize);
     }
     this.items = ITEMS.map((it) => ({ ...it, used: false }));
     this.undoStack = [];
@@ -87,7 +95,7 @@ export class Game {
       // p1: 弾倉（末尾が一番上＝次弾） / p2: 魔法陣（先頭から順に埋まる）。中身は { card, lit }
       stock: [],
     };
-    return this.solo && !this.split ? p : Object.assign(p, this.makePile(DECKS[pid], RULES.handSize));
+    return this.solo && !this.split ? p : Object.assign(p, this.makePile(DECKS[pid], this.handSize));
   }
 
   makePile(ids, handSize) {
@@ -103,7 +111,29 @@ export class Game {
   // 手札の slot 番目の枠を埋めるときに引く山札
   drawPile(hid, slot) {
     if (!this.split) return this.holder(hid);
-    return this.players[slot < RULES.handSize ? 'p1' : 'p2'];
+    return this.players[slot < this.handSize ? 'p1' : 'p2'];
+  }
+
+  // ターン制の数値。一人モードは RULES.turn.solo にあればそちらを使う
+  turnRule(key) {
+    const s = RULES.turn.solo;
+    return this.solo && s?.[key] != null ? s[key] : RULES.turn[key];
+  }
+
+  // ターン制のコスト: 1ターン目は RULES.turn.cost、以後毎ターン costStep ずつ増える（costMax が 0 なら上限なし）
+  turnCost(round) {
+    const t = RULES.turn;
+    const c = t.cost + (round - 1) * t.costStep;
+    return t.costMax ? Math.min(t.costMax, c) : c;
+  }
+
+  // ターン制のターン開始: 残った手札を捨て、全部の枠を引き直す
+  newHand() {
+    for (const hid of this.handIds()) {
+      const h = this.holder(hid);
+      for (const c of h.hand) if (c) this.pile(c.owner).discard.push(c);
+      h.hand = h.hand.map((_, i) => this.draw(this.drawPile(hid, i)));
+    }
   }
 
   // 引くたびに山札からランダムに1枚選ぶ（取り消してから引き直しても、同じカードが来るとは限らない）
@@ -156,7 +186,8 @@ export class Game {
     if (err) return { error: err };
     this.saveUndo(hid);
     p.cost -= card.cost;
-    h.hand[slot] = this.draw(this.drawPile(hid, slot));
+    // 行動値制は使った枠をすぐ埋める。ターン制は次のターンまで空のまま
+    h.hand[slot] = this.turnBased ? null : this.draw(this.drawPile(hid, slot));
     const ev = [log(`${NAME[pid]}「${card.name}」`)];
     this.resolveCard(pid, card, ev);
     if (!card.free) this.afterAction(pid, ev);
@@ -270,9 +301,11 @@ export class Game {
     this.saveUndo(hid);
     if (this.turnBased) this.rerolled[hid] = true;
     const h = this.holder(hid);
+    // ターン制は、今手札に残っている枠だけ引き直す（使って空いた枠は埋めない）
+    const redraw = h.hand.map((c) => !this.turnBased || !!c);
     for (const c of h.hand) if (c) this.pile(c.owner).discard.push(c);
     h.hand = h.hand.map(() => null);
-    for (let i = 0; i < h.hand.length; i++) h.hand[i] = this.draw(this.drawPile(hid, i));
+    for (let i = 0; i < h.hand.length; i++) if (redraw[i]) h.hand[i] = this.draw(this.drawPile(hid, i));
     const ev = [log(`${this.solo ? '' : `${NAME[hid]} `}手札を引き直した`)];
     // ターン制では引き直しは1ターン1回で、コストは増えない
     if (!this.turnBased) for (const q of this.alivePids()) this.gainCost(q, 1, ev);
@@ -291,15 +324,16 @@ export class Game {
     this.undoStack.push({ who: this.solo ? 'solo' : who, state: structuredClone({ round, avMax, av, enemy, players, shared, items, ended, rerolled }) });
   }
 
-  // ---------------- ターン制（二人モード）
+  // ---------------- ターン制
 
-  // 「ターン終了」。2人とも（倒れた人は除く）押したら敵が行動する。押したあとも、相方が押す前なら取り消しで戻せる
+  // 「ターン終了」。二人モードは2人とも（倒れた人は除く）押したら敵が行動する。押したあとも、相方が押す前なら取り消しで戻せる
+  // 一人モード（pid = 'solo'）は押した時点で敵が行動する
   endTurn(pid) {
     if (!this.turnBased || !this.canAct(pid)) return null;
     this.saveUndo(pid);
-    this.ended[pid] = true;
-    const all = this.alivePids().every((q) => this.ended[q]);
-    const ev = [log(`${NAME[pid]} ターン終了`), { type: 'turnEnd', pid, all }];
+    if (pid !== 'solo') this.ended[pid] = true;
+    const all = pid === 'solo' || this.alivePids().every((q) => this.ended[q]);
+    const ev = [log(pid === 'solo' ? 'ターン終了' : `${NAME[pid]} ターン終了`), { type: 'turnEnd', pid, all }];
     if (all) {
       this.enemyActsLeft = this.enemy.frenzy ? RULES.turn.frenzyEnemyActs : RULES.turn.enemyActs;
       this.enemyPending = true;
@@ -465,7 +499,7 @@ export class Game {
   }
 
   enemyDamage(card) {
-    const base = Math.max(0, card.dmg + this.enemy.strength + (this.turnBased ? RULES.turn.dmgBonus : 0));
+    const base = Math.max(0, card.dmg + this.enemy.strength + (this.turnBased ? this.turnRule('dmgBonus') : 0));
     return this.enemy.resist ? Math.floor(base / 2) : base;
   }
 
@@ -575,10 +609,12 @@ export class Game {
     if (this.turnBased) {
       this.enemyActsLeft--;
       if (this.enemyActsLeft > 0) return ev;
-      for (const pid of this.alivePids()) this.players[pid].cost = RULES.turn.cost;
+      const cost = this.turnCost(this.round + 1);
+      for (const pid of this.alivePids()) this.players[pid].cost = cost;
       this.ended = { p1: false, p2: false };
       this.rerolled = { p1: false, p2: false };
-      ev.push({ type: 'newTurn' });
+      this.newHand();
+      ev.push({ type: 'newTurn', cost });
     } else {
       for (const pid of this.alivePids()) this.gainCost(pid, 1, ev);
     }

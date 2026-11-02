@@ -81,14 +81,15 @@ function playerTurn(g, sk) {
 }
 
 function run(mode, sk) {
-  const g = new Game(Math.random, mode);
+  // 'solo-turn' は一人モードのターン制
+  const g = mode === 'solo-turn' ? new Game(Math.random, 'solo', { soloProgress: 'turn' }) : new Game(Math.random, mode, { soloProgress: 'av' });
   let enemyActs = 0;
   while (!g.over && enemyActs < 100) {
     playerTurn(g, sk);
     if (g.over) break;
     // ターン制は2人とも打つ手が無くなったらターン終了。行動値制で手が尽きたときは、敵の行動まで飛ばす
     if (!g.enemyPending) {
-      if (g.turnBased) for (const pid of g.alivePids()) g.endTurn(pid);
+      if (g.turnBased) for (const pid of g.solo ? ['solo'] : g.alivePids()) g.endTurn(pid);
       else { g.av = 0; g.enemyPending = true; }
     }
     while (g.enemyPending && !g.over) {
@@ -112,7 +113,7 @@ function run(mode, sk) {
 
 const N = Number(process.env.N ?? 3000);
 const rows = [];
-for (const mode of ['duo', 'solo']) {
+for (const mode of (process.env.MODES ?? 'duo,solo,solo-turn').split(',')) {
   for (const skill of ['good', 'novice']) {
     let win = 0, cards = 0, acts = 0, winActs = 0, winRounds = 0;
     for (let i = 0; i < N; i++) {
@@ -120,7 +121,7 @@ for (const mode of ['duo', 'solo']) {
       acts += enemyActs;
       if (g.over === 'win') { win++; winActs += enemyActs; winRounds += g.round; if (g.winBy === 'cards') cards++; }
     }
-    rows.push(`${mode.padEnd(4)} ${skill.padEnd(6)} win ${(win / N * 100).toFixed(0).padStart(3)}%  byCards ${(cards / Math.max(1, win) * 100).toFixed(0).padStart(3)}%  winActs ${(winActs / Math.max(1, win)).toFixed(1)}  rounds ${(winRounds / Math.max(1, win)).toFixed(1)}`);
+    rows.push(`${mode.padEnd(9)} ${skill.padEnd(6)} win ${(win / N * 100).toFixed(0).padStart(3)}%  byCards ${(cards / Math.max(1, win) * 100).toFixed(0).padStart(3)}%  winActs ${(winActs / Math.max(1, win)).toFixed(1)}  rounds ${(winRounds / Math.max(1, win)).toFixed(1)}`);
   }
 }
 console.log(JSON.stringify(over), '\n' + rows.join('\n'));

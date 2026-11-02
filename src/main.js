@@ -40,6 +40,7 @@ const SOLO_KEYMAP = {
   ShiftLeft: ['solo', 'undo'],
   ShiftRight: ['solo', 'undo'],
   Backspace: ['solo', 'undo'],
+  KeyQ: ['solo', 'end'],
   Digit1: ['solo', 'item', 0],
   Digit2: ['solo', 'item', 1],
   Digit3: ['solo', 'item', 2],
@@ -58,7 +59,9 @@ const params = new URLSearchParams(location.search);
 let playMode = params.has('solo') ? 'solo' : 'duo';
 // 一人モードの山札の分け方。?deck=mixed / ?deck=split で指定でき、タイトルでも W / S で切り替えられる
 let soloDeck = ['mixed', 'split'].includes(params.get('deck')) ? params.get('deck') : RULES.soloDeck;
-const newGame = () => new Game(Math.random, playMode, { soloDeck });
+// 一人モードの進行。?progress=turn / ?progress=av で指定でき、タイトルでも ↑ / ↓ で切り替えられる
+let soloProgress = ['turn', 'av'].includes(params.get('progress')) ? params.get('progress') : RULES.soloProgress;
+const newGame = () => new Game(Math.random, playMode, { soloDeck, soloProgress });
 let game = newGame();
 
 view.bindGame(game, cursor);
@@ -82,7 +85,8 @@ window.addEventListener('keydown', (e) => {
 function onAction(pid, act, arg) {
   if (mode === 'title' || mode === 'result') {
     if (act === 'left' || act === 'right') return switchMode();
-    if (playMode === 'solo' && (act === 'stock' || act === 'reroll')) return switchDeck();
+    // 一人モードは W / S で山札の分け方、↑ / ↓ で進行を切り替える
+    if (playMode === 'solo' && (act === 'stock' || act === 'reroll')) return pid === 'p2' ? switchProgress() : switchDeck();
     if (act !== 'use') return;
     if (playMode === 'solo') return startBattle();
     startReady[pid] = true;
@@ -105,21 +109,47 @@ function switchMode() {
     view.bindGame(game, cursor);
     view.showTitle(startReady);
   } else {
-    view.setSolo(playMode === 'solo', soloDeck === 'split');
+    view.setSolo(playMode === 'solo', soloDeck === 'split', playMode === 'solo' ? soloProgress === 'turn' : RULES.duoProgress === 'turn');
     view.updateStartReady(startReady);
   }
 }
 
 function switchDeck() {
   soloDeck = soloDeck === 'split' ? 'mixed' : 'split';
+  rebuildSolo();
+}
+
+function switchProgress() {
+  soloProgress = soloProgress === 'turn' ? 'av' : 'turn';
+  rebuildSolo();
+}
+
+function rebuildSolo() {
   if (mode === 'title') {
     game = newGame();
     view.bindGame(game, cursor);
     view.showTitle(startReady);
   } else {
-    view.setSolo(true, soloDeck === 'split');
+    view.setSolo(true, soloDeck === 'split', soloProgress === 'turn');
     view.updateStartReady(startReady);
   }
+}
+
+// ターン制では使ったカードの枠が空くので、カーソルは空でない枠へ動かす
+function moveCursor(hid, step) {
+  const hand = game.holder(hid).hand;
+  const n = hand.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (cursor[hid] + step * k + n * k) % n;
+    if (hand[i]) {
+      cursor[hid] = i;
+      return;
+    }
+  }
+}
+
+function fixCursors() {
+  for (const hid of game.handIds()) if (!game.holder(hid).hand[cursor[hid]]) moveCursor(hid, 1);
 }
 
 function playerAction(pid, act, arg) {
@@ -137,8 +167,7 @@ function playerAction(pid, act, arg) {
   // 取り消しだけは、ターン終了を押したあとでも受け付ける
   if (act !== 'undo' && !game.canAct(pid)) return;
   if (act === 'left' || act === 'right') {
-    const n = game.holder(pid).hand.length;
-    cursor[pid] = (cursor[pid] + (act === 'left' ? n - 1 : 1)) % n;
+    moveCursor(pid, act === 'left' ? -1 : 1);
     return;
   }
   let res = null;
@@ -179,6 +208,7 @@ function playerAction(pid, act, arg) {
     view.handRerolled(pid);
   }
   if (!res) return;
+  fixCursors();
   view.enqueue(res.events);
   view.refresh();
   afterPlayerAction();
@@ -207,7 +237,8 @@ async function startBattle() {
   view.bindGame(game, cursor);
   view.setPhase('intro');
   await view.hideOverlay();
-  const sub = game.solo ? '2人のカードを1人で使う ― カードを使うたびに敵の行動値が減る' : '2人で自由に行動 ― 2人とも「ターン終了」で敵が行動';
+  const sub = !game.turnBased ? '2人のカードを1人で使う ― カードを使うたびに敵の行動値が減る'
+    : game.solo ? '2人のカードを1人で使う ― 「ターン終了」で敵が行動' : '2人で自由に行動 ― 2人とも「ターン終了」で敵が行動';
   await view.banner('BATTLE START', sub, '#e8fbff', 700);
   mode = 'player';
   view.setPhase('player');
@@ -219,6 +250,7 @@ async function enemyPhase() {
     await enemyAction();
   } while (!game.over && game.enemyPending);
   if (game.over) return finish();
+  fixCursors();
   mode = 'player';
   view.setPhase('player');
 }
@@ -230,6 +262,8 @@ async function enemyAction() {
   const card = game.enemy.cards[slot];
   view.addLog(`敵「${card.name}」`);
   await view.revealEnemyCard(slot, card, card.dmg != null ? game.enemyDamage(card) : undefined);
+  // ターン制は、敵のカードの種類に合わせて2人が掛け合う
+  if (game.turnBased) await view.banter(card.kind);
   view.enqueue(game.arcanaStrike(slot));
   await view.idle();
   if (!card.broken && !game.over) {
