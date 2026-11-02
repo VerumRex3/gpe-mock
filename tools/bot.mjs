@@ -33,8 +33,8 @@ function candidates(g) {
   const lit = p2.stock.filter((s) => s.lit).length;
   const missing = (pid) => g.players[pid].maxHp - g.players[pid].hp;
   const attacksLeft = g.enemy.cards.filter((c) => c.kind === 'attack' && !c.broken).length;
-  if (g.canAct('p1') && p1.stock.length && p1.cost >= 1) out.push({ s: 6 + g.topBullet().card.boons.length, f: () => g.useStock('p1') });
-  if (g.canAct('p2') && g.nextUnlit() && p2.cost >= 1) out.push({ s: lit === 0 ? 6.5 : lit === 1 ? 3 : 0.8, f: () => g.useStock('p2') });
+  if (g.canAct('p1') && p1.stock.length && p1.cost >= data.CARDS.bullet.cost) out.push({ s: 6 + g.topBullet().card.boons.length, f: () => g.useStock('p1') });
+  if (g.canAct('p2') && g.nextUnlit() && p2.cost >= data.CARDS.arcana.cost) out.push({ s: lit === 0 ? 6.5 : lit === 1 ? 3 : 0.8, f: () => g.useStock('p2') });
   for (const hid of g.handIds()) {
     if (!g.canAct(hid)) continue;
     g.holder(hid).hand.forEach((c, slot) => {

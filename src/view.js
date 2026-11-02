@@ -1446,6 +1446,13 @@ function slotCount(ctx, n, bg = '#111111') {
   ctx.fillText(String(n), x, y + 1);
 }
 
+// コストの量を文字にする（0.5 は「½」）
+function costText(a) {
+  const w = Math.floor(a + 1e-9);
+  const half = a - w >= 0.5 - 1e-9;
+  return `${w || !half ? w : ''}${half ? '½' : ''}`;
+}
+
 // コスト: 白い丸に赤で「今／上限」。外側の輪と名札がキャラの色。上限を超えているとき（集中など）も、そのまま出す
 function drawCostBox(ctx, w, h, pid, cost, max, down) {
   const cx = w / 2;
@@ -1468,7 +1475,10 @@ function drawCostBox(ctx, w, h, pid, cost, max, down) {
   ctx.font = font(11);
   ctx.fillStyle = '#6b6470';
   ctx.fillText('コスト', cx, cy - 22);
-  const now = String(cost);
+  // 回復が 0.5（かけら）単位のときは、整数の部分を数字で出し、かけらが1つあれば下に小さな半円を出す
+  const whole = Math.floor(cost + 1e-9);
+  const shard = cost - whole >= 0.5 - 1e-9;
+  const now = String(whole);
   const tail = `/${max}`;
   ctx.font = font(now.length > 1 ? 28 : 32);
   const nw = ctx.measureText(now).width;
@@ -1482,6 +1492,13 @@ function drawCostBox(ctx, w, h, pid, cost, max, down) {
   ctx.font = font(17);
   ctx.fillStyle = '#3a3440';
   ctx.fillText(tail, x0 + nw, cy + 10);
+  if (shard) {
+    ctx.beginPath();
+    ctx.arc(cx, cy + 30, 7, Math.PI, 0);
+    ctx.closePath();
+    ctx.fillStyle = '#e02a24';
+    ctx.fill();
+  }
   ctx.textAlign = 'center';
   ctx.font = font(13);
   const nm = NAME[pid];
@@ -1907,7 +1924,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.29', w / 2, 398);
+  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.30', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2734,7 +2751,7 @@ export class View {
         this.refreshHands();
         // コスト表示の上に「+2」を出し、輪を光らせる
         const cp = this.costPoint(e.pid);
-        this.popText(cp.x, cp.top - 56, `+${e.amount}`, '#e02a24', 40);
+        this.popText(cp.x, cp.top - 56, `+${costText(e.amount)}`, '#e02a24', 40);
         this.ring(cp.x, cp.top, '#ff8a7a');
         const m = this.costBoxes[e.pid].mesh;
         this.killTweens(m.scale);
