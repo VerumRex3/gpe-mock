@@ -77,13 +77,13 @@ const TRACK = { x0: 250, x1: 1670, top: 228 };
 const REVEAL = { x: 960, top: 470 };
 // 敵カードは上の黒帯から吊るす
 const ESLOT = { xs: [538, 747, 956, 1165, 1374], top: 72, w: 186, h: 140 };
-// 弾倉（左上）と紋章（ルスカーの照準・ラティシアの魔法陣）
-const MAG = { x: 172, top: 276, w: 200, h: 230 };
-const EMBLEM = { p1: { x: 170, top: 540 }, p2: { x: 1730, top: 540 } };
-const EMBLEM_SIZE = 400;
-const NODE_R = 144; // 魔法陣の5つの点の半径
+// v0.13: 弾倉と紋章（照準・魔法陣）をやめ、左下・右下の丸いメーターにまとめた。外周の5マスが弾倉／魔法陣、中央の赤い数字がコスト
+// top はメーターの円の中心。canvas は円の下に操作のヒントを持つ
+const METER = { p1: { x: 150, top: 560 }, p2: { x: 1770, top: 560 }, r: 104, w: 270, h: 320, cy: 135 };
+// 山札と墓地（捨て札）。メーターの上に並べる。墓地は一番上のカードを表向きに出す
+const PILE = { p1: { deck: 90, grave: 210 }, p2: { deck: 1830, grave: 1710 }, top: 330, w: 110, h: 168 };
 // 左下・右下のボタン（引き直し・山札）
-const BTN = { p1: { x: 55 }, p2: { x: W - 55 }, reroll: 921, deck: 1025 };
+const BTN = { p1: { x: 55 }, p2: { x: W - 55 }, reroll: 975 };
 // 地面と下の黒帯の境目
 const GROUND = { top: 699, bottom: 781 };
 const MINI_W = 88;
@@ -96,18 +96,19 @@ function helpRows() {
   return [
     ['目的', '灯火の翼竜の HP を0にするか、上に並ぶ敵の攻撃カード（赤）をすべて破壊すれば勝ち。2人とも倒れたら負け。'],
     SOLO
-      ? ['一人モード', `ルスカーとラティシアの2人を1人で操作する。${SPLIT ? '山札はキャラ別のままで、手札は左3枚がルスカー、右3枚がラティシア。使った枠はその持ち主の山札から引くので、いつも 3:3 になる。' : '2人のデッキは1つに混ざり、手札5枚から好きなカードを使う。'}カードの縁の色と名札が持ち主で、コストはその持ち主の紋章から払う。倒れたキャラのカードは使えない。`]
-      : ['二人モード', '1台のキーボードを2人で使い、それぞれ自分の手札3枚を操作する。'],
+      ? ['一人モード', `ルスカーとラティシアの2人を1人で操作する。${SPLIT ? '山札はキャラ別のままで、手札は左3枚がルスカー、右3枚がラティシア。使った枠はその持ち主の山札から引くので、いつも 3:3 になる。' : '2人のデッキは1つに混ざり、手札5枚から好きなカードを使う。'}カードの縁の色と名札が持ち主で、コストはその持ち主のメーターから払う。倒れたキャラのカードは使えない。`]
+      : ['二人モード', `1台のキーボードを2人で使い、それぞれ自分の手札${TURN ? RULES.turn.handSize : RULES.handSize}枚を操作する。`],
+    ['画面', '左下・右下の丸いメーターは、外周の5マスが弾倉（ルスカー）・魔法陣（ラティシア）、中央の赤い数字がコスト。白い三角が次に使われるマス。メーターの上が山札と墓地（捨て札。一番上のカードを表向きに出す）。'],
     ...(TURN ? [
       ['ターン', SOLO
         ? `好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。済んだら「ターン終了」（${SOLO_KEY.end}）で敵が1回行動し（激昂後は2回）、次のターンになる。`
         : `2人とも好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。自分の番が済んだら「ターン終了」（1P は ${KEYS.p1.end}、2P は ${KEYS.p2.end}）。2人とも押すと敵が1回行動し（激昂後は2回）、次のターンになる。`],
       ['手札', `ターン開始時に残った手札を捨て、${SOLO ? `${RULES.turn.soloHandSize}枚${SPLIT ? '（ルスカーとラティシア半分ずつ）' : ''}` : `1人${RULES.turn.handSize}枚`}引く。使ったカードの枠はそのターンは空のまま。引き直しは1ターンに1回で、残っている枠だけ引き直す。`],
-      ['コスト', `左右の紋章の赤い数字。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。`],
+      ['コスト', `左右の丸いメーターの中央の赤い数字。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。`],
       ['掛け合い', '敵が動くとき、使うカードの種類（攻撃・防御・特殊）に合わせて2人が一言交わす（台詞は仮）。'],
     ] : [
       ['行動値', `カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテムは行動値を消費しない。`],
-      ['コスト', `左右の紋章の赤い数字。初期値3で上限なし。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが1回復する' : 'カードを使うと、相方のコストが1回復する'}（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。`],
+      ['コスト', `左右の丸いメーターの中央の赤い数字。初期値3で上限なし。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが1回復する' : 'カードを使うと、相方のコストが1回復する'}（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。`],
     ]),
     ['取り消し', SOLO
       ? `${SOLO_KEY.undo}。敵が次に行動するまでの間、直前の行動から順に取り消せる。`
@@ -1388,7 +1389,7 @@ function drawBubble(ctx, w, h, pid, text) {
   ctx.fillText(text, 18, 54);
 }
 
-// 左右の下のボタン: 引き直し（回る矢印）・山札（重なったカード）
+// 左右の下のボタン: 引き直し（回る矢印）
 function drawButton(ctx, w, h, kind, label) {
   const cx = w / 2;
   const cy = 42;
@@ -1399,35 +1400,20 @@ function drawButton(ctx, w, h, kind, label) {
   ctx.strokeStyle = '#111111';
   ctx.fillStyle = '#111111';
   ctx.lineCap = 'round';
-  if (kind === 'reroll') {
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 17, -Math.PI * 0.35, Math.PI * 1.45);
-    ctx.stroke();
-    const a = -Math.PI * 0.35;
-    const ax = cx + Math.cos(a) * 17;
-    const ay = cy + Math.sin(a) * 17;
-    ctx.beginPath();
-    ctx.moveTo(ax + 9, ay - 3);
-    ctx.lineTo(ax - 4, ay - 10);
-    ctx.lineTo(ax - 2, ay + 6);
-    ctx.closePath();
-    ctx.fill();
-  } else {
-    for (const dy of [10, 0, -10]) {
-      ctx.save();
-      ctx.translate(cx, cy + dy);
-      ctx.scale(1, 0.42);
-      ctx.beginPath();
-      ctx.arc(0, 0, 20, 0, Math.PI * 2);
-      ctx.fillStyle = '#111111';
-      ctx.fill();
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
+  // 引き直し（回る矢印）。v0.12 まであった山札のボタンは、メーターの上の山札・墓地に置き換えた
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 17, -Math.PI * 0.35, Math.PI * 1.45);
+  ctx.stroke();
+  const a = -Math.PI * 0.35;
+  const ax = cx + Math.cos(a) * 17;
+  const ay = cy + Math.sin(a) * 17;
+  ctx.beginPath();
+  ctx.moveTo(ax + 9, ay - 3);
+  ctx.lineTo(ax - 4, ay - 10);
+  ctx.lineTo(ax - 2, ay + 6);
+  ctx.closePath();
+  ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
   ctx.font = font(13);
   ctx.textAlign = 'center';
@@ -1435,205 +1421,165 @@ function drawButton(ctx, w, h, kind, label) {
   ctx.fillText(label, cx, h - 10);
 }
 
-// 弾倉: 上の段ほど後から装填した弾（＝次に撃つ弾）。付いた加護は帯の色で出す
-function drawMagazine(ctx, w, h, p) {
-  const n = RULES.stockMax;
-  const rows = [...p.stock].reverse();
-  for (let i = 0; i < n; i++) {
-    const y = 22 + i * 42;
-    const s = rows[i];
-    const x = 26;
-    if (!s) {
-      ctx.setLineDash([5, 5]);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(20,20,20,0.25)';
-      rr(ctx, x, y - 9, 110, 18, 4);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      continue;
-    }
-    // 黒い弾（右向き）。左端に白い刻み
-    ctx.fillStyle = '#111111';
-    ctx.beginPath();
-    ctx.moveTo(x, y - 11);
-    ctx.lineTo(x + 96, y - 11);
-    ctx.lineTo(x + 122, y);
-    ctx.lineTo(x + 96, y + 11);
-    ctx.lineTo(x, y + 11);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(x + 6, y - 7, 4, 14);
-    s.card.boons.slice(0, 4).forEach((b, j) => {
-      ctx.fillStyle = ENCH_COL[b];
-      ctx.fillRect(x + 20 + j * 18, y - 7, 14, 14);
-    });
-    if (i === 0) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = C.gold;
-      ctx.beginPath();
-      ctx.moveTo(x - 4, y - 15);
-      ctx.lineTo(x + 98, y - 15);
-      ctx.lineTo(x + 128, y);
-      ctx.lineTo(x + 98, y + 15);
-      ctx.lineTo(x - 4, y + 15);
-      ctx.closePath();
-      ctx.stroke();
-    }
-    ctx.fillStyle = '#1a1a1a';
-    ctx.font = font(18);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(bulletDamage(s.card)), x + 136, y + 1);
-  }
-}
-
-// 紋章: ルスカーは照準、ラティシアは魔法陣。赤丸の数字がコスト
-function drawEmblem(ctx, w, h, pid, p, active) {
+// 丸メーター: 外周の5マスが弾倉（ルスカー）／魔法陣（ラティシア）、中央の赤い数字がコスト
+// ルスカーは装填した順に時計回りに埋まり、一番新しい弾（＝次に撃つ弾）に印。加護は弾のマスの上の点の色で出す
+// ラティシアは番号順（1 が真上）に埋まり、発動待ちは金色に光る。属性が付いたものはその色。次に当たるものに印
+function drawMeter(ctx, w, h, pid, p, active) {
   const cx = w / 2;
-  const cy = h / 2 - 10;
-  if (pid === 'p1') {
-    // 照準
-    ctx.strokeStyle = '#111111';
-    ctx.lineWidth = 7;
-    ctx.setLineDash([26, 14]);
+  const cy = METER.cy;
+  const r = METER.r;
+  const n = RULES.stockMax;
+  const seg = (Math.PI * 2) / n;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 17, 0, Math.PI * 2);
+  ctx.fillStyle = '#111111';
+  ctx.fill();
+  const next = pid === 'p1' ? p.stock.length - 1 : p.stock.findIndex((s) => s.lit);
+  for (let i = 0; i < n; i++) {
+    const st = p.stock[i];
+    const a = -Math.PI / 2 + i * seg;
+    let col = 'rgba(255,255,255,0.13)';
+    if (st && pid === 'p1') col = '#f4eacf';
+    if (st && pid === 'p2') col = st.card.aspect ? KIND_COL[st.card.aspect] : '#f4eacf';
+    ctx.save();
+    if (st?.lit) {
+      ctx.shadowColor = '#ffc94a';
+      ctx.shadowBlur = 18;
+      if (!st.card.aspect) col = '#ffd86a';
+    }
     ctx.beginPath();
-    ctx.arc(cx, cy, 140, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, a - seg / 2 + 0.07, a + seg / 2 - 0.07);
+    ctx.lineWidth = 24;
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = col;
     ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(cx, cy, 104, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.lineWidth = 14;
-    ctx.stroke();
-    ctx.lineWidth = 8;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    ctx.restore();
+    // 属性つきの発動待ちは、金の縁を足して光っていることを出す
+    if (st?.lit && st.card.aspect) {
       ctx.beginPath();
-      ctx.moveTo(cx + dx * 64, cy + dy * 64);
-      ctx.lineTo(cx + dx * 150, cy + dy * 150);
+      ctx.arc(cx, cy, r + 9, a - seg / 2 + 0.07, a + seg / 2 - 0.07);
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#ffd86a';
       ctx.stroke();
     }
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 70, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(Math.PI / 4);
-    ctx.fillStyle = '#111111';
-    ctx.beginPath();
-    ctx.moveTo(-12, 50);
-    ctx.lineTo(-12, -24);
-    ctx.lineTo(0, -54);
-    ctx.lineTo(12, -24);
-    ctx.lineTo(12, 50);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(-12, 30, 24, 5);
-    ctx.restore();
-  } else {
-    // 魔法陣: 黒い円・目の菱形・番号つきの5つの点
-    ctx.beginPath();
-    ctx.arc(cx, cy, 112, 0, Math.PI * 2);
-    ctx.fillStyle = '#111111';
-    ctx.fill();
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#111111';
-    ctx.lineWidth = 6;
-    for (let i = 0; i < 4; i++) {
-      ctx.rotate(Math.PI / 2);
-      ctx.beginPath();
-      ctx.moveTo(-14, -60);
-      ctx.lineTo(0, -98);
-      ctx.lineTo(14, -60);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.beginPath();
-    ctx.moveTo(0, -88);
-    ctx.lineTo(96, 0);
-    ctx.lineTo(0, 88);
-    ctx.lineTo(-96, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, -60);
-    ctx.lineTo(64, 0);
-    ctx.lineTo(0, 60);
-    ctx.lineTo(-64, 0);
-    ctx.closePath();
-    ctx.lineWidth = 4;
-    ctx.stroke();
-    ctx.restore();
-    drawArcanaShape(ctx, cx, cy, 1.15, '#111111', '#ffffff');
-    for (let i = 0; i < RULES.stockMax; i++) {
-      const [x, y] = circleNode(i, cx, cy);
-      const st = p.stock[i];
-      if (st?.lit) {
-        ctx.save();
-        ctx.shadowColor = '#ffc94a';
-        ctx.shadowBlur = 22;
+    if (st && pid === 'p1') {
+      st.card.boons.slice(0, 4).forEach((b, j, arr) => {
+        const ba = a + (j - (arr.length - 1) / 2) * 0.17;
         ctx.beginPath();
-        ctx.arc(x, y, 24, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffd86a';
+        ctx.arc(cx + Math.cos(ba) * r, cy + Math.sin(ba) * r, 7, 0, Math.PI * 2);
+        ctx.fillStyle = ENCH_COL[b];
         ctx.fill();
-        ctx.restore();
-      }
+      });
+    }
+    if (i === next) {
+      // 次に使われるマスの外側に白い三角
+      const tx = cx + Math.cos(a) * (r + 22);
+      const ty = cy + Math.sin(a) * (r + 22);
+      ctx.save();
+      ctx.translate(tx, ty);
+      ctx.rotate(a + Math.PI / 2);
       ctx.beginPath();
-      ctx.arc(x, y, st ? 20 : 15, 0, Math.PI * 2);
-      ctx.fillStyle = st ? (st.card.aspect ? KIND_COL[st.card.aspect] : '#ffffff') : '#111111';
+      ctx.moveTo(0, 8);
+      ctx.lineTo(-9, -6);
+      ctx.lineTo(9, -6);
+      ctx.closePath();
+      ctx.fillStyle = '#ffffff';
       ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#111111';
-      ctx.stroke();
-      if (st) drawArcanaShape(ctx, x, y, 0.42, st.card.aspect ? '#ffffff' : '#111111', st.card.aspect ? KIND_COL[st.card.aspect] : '#ffffff');
-      const [lx, ly] = circleNode(i, cx, cy, NODE_R + 34);
-      ctx.fillStyle = '#c0262b';
-      ctx.font = font(22);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(i + 1), lx, ly);
+      ctx.restore();
     }
   }
-  // コスト（赤丸）と弾・アルカナの数（小丸）
-  const badge = (x, y, r, text, red) => {
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = red ? '#ffffff' : '#111111';
-    ctx.fill();
-    ctx.lineWidth = red ? 5 : 4;
-    ctx.strokeStyle = red ? '#e02a24' : '#ffffff';
-    ctx.stroke();
-    ctx.fillStyle = red ? '#e02a24' : '#ffffff';
-    ctx.font = font(r * (String(text).length > 1 ? 1.05 : 1.3));
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(text), x, y + 2);
-  };
-  badge(cx - 72, cy - 72, 34, p.cost, true);
-  const count = pid === 'p1' ? p.stock.length : p.stock.filter((st) => st.lit).length;
-  badge(cx + 76, cy + 76, 24, count, false);
-  // 操作のヒント（地面の帯の上）
+  // 中央: キャラの色の縁取りの白い円に、小さな弾・アルカナの印とコスト
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 20, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = PCOL[pid];
+  ctx.stroke();
+  if (pid === 'p1') drawBulletShape(ctx, cx, cy - 48, 0.62);
+  else drawArcanaShape(ctx, cx, cy - 46, 0.5, '#111111', '#ffffff');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = font(String(p.cost).length > 1 ? 50 : 60);
+  ctx.fillStyle = '#e02a24';
+  ctx.fillText(String(p.cost), cx, cy + 6);
+  ctx.font = font(14);
+  ctx.fillStyle = '#6b6470';
+  ctx.fillText('コスト', cx, cy + 46);
+  // 操作のヒントと中身の数（ルスカーは次弾の威力、ラティシアは発動待ちの数）
+  const lit = p.stock.filter((st) => st.lit).length;
+  const info = pid === 'p1'
+    ? (p.stock.length ? `弾${p.stock.length}／5・次弾${bulletDamage(p.stock.at(-1).card)}` : '弾なし')
+    : `アルカナ${p.stock.length}／5・発動待ち${lit}`;
+  ctx.font = font(15, 500);
+  ctx.fillStyle = '#211c28';
+  ctx.fillText(info, cx, h - 64);
   const hint = pid === 'p1' ? `${keysOf('p1').stock}：撃つ（コスト1）` : `${keysOf('p2').stock}：発動待ちに（コスト1）`;
   ctx.font = font(16);
-  ctx.textBaseline = 'middle';
   const tw = ctx.measureText(hint).width + 28;
-  rr(ctx, cx - tw / 2, h - 34, tw, 30, 15);
+  rr(ctx, cx - tw / 2, h - 46, tw, 30, 15);
   ctx.fillStyle = active ? '#111111' : 'rgba(17,17,17,0.45)';
   ctx.fill();
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(hint, cx, h - 18);
+  ctx.fillText(hint, cx, h - 30);
 }
 
-// 魔法陣の i 番目の位置（1 が真上、時計回り）
-function circleNode(i, cx, cy, r = NODE_R) {
+// メーターの i 番目のマスの位置（0 が真上、時計回り）
+function meterNode(pid, i) {
   const a = -Math.PI / 2 + (i * Math.PI * 2) / RULES.stockMax;
-  return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  const m = METER[pid];
+  return { x: m.x + Math.cos(a) * METER.r, top: m.top + Math.sin(a) * METER.r };
+}
+
+// 山札（裏向きの束）と墓地（一番上のカードを表向き）。右上に枚数
+function drawPile(ctx, w, h, kind, cards) {
+  const x = (w - MINI_W) / 2;
+  const y = 10;
+  const top = cards.at(-1);
+  if (!cards.length) {
+    ctx.setLineDash([6, 5]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(30,30,30,0.35)';
+    rr(ctx, x, y, MINI_W, MINI_H, 9);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else {
+    // 枚数に応じて少しずつずらして厚みを出す
+    const depth = Math.min(3, Math.ceil(cards.length / 6));
+    for (let k = depth; k >= 0; k--) {
+      const dx = x + k * 3;
+      const dy = y + k * 3;
+      if (kind === 'grave' && k === 0) {
+        ctx.save();
+        ctx.translate(dx, dy);
+        drawMiniCard(ctx, MINI_W, MINI_H, top);
+        ctx.restore();
+        continue;
+      }
+      rr(ctx, dx, dy, MINI_W, MINI_H, 9);
+      ctx.fillStyle = kind === 'grave' ? '#d9d2c2' : '#2b2433';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = kind === 'grave' ? '#8c8578' : C.cream;
+      ctx.stroke();
+      if (k === 0) drawBird(ctx, dx + MINI_W / 2, dy + MINI_H / 2, 0.45, C.cream);
+    }
+  }
+  ctx.beginPath();
+  ctx.arc(x + MINI_W - 2, y + 4, 17, 0, Math.PI * 2);
+  ctx.fillStyle = kind === 'grave' ? '#5b5348' : '#111111';
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(16);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(cards.length), x + MINI_W - 2, y + 5);
+  ctx.font = font(15);
+  ctx.fillStyle = '#211c28';
+  ctx.fillText(kind === 'grave' ? '墓地' : '山札', w / 2, h - 16);
 }
 
 // 中央の3つの菱形（画面案の飾り）
@@ -1908,7 +1854,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.12', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.13', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2256,28 +2202,30 @@ export class View {
     }
   }
 
-  // 弾倉・紋章・ボタン・操作のヒント
+  // メーター・山札と墓地・ボタン・操作のヒント
   buildPanels() {
     this.stocks = {};
     this.trash = {};
     this.hints = {};
-    this.decks = {};
-    this.magazine = canvasPlane(MAG.w, MAG.h, null, { layer: L.stock });
-    at(this.magazine.mesh, MAG.x, MAG.top);
-    this.scene.add(this.magazine.mesh);
+    this.piles = {};
     for (const pid of PIDS) {
-      const em = canvasPlane(EMBLEM_SIZE, EMBLEM_SIZE + 40, null, { layer: L.stock });
-      at(em.mesh, EMBLEM[pid].x, EMBLEM[pid].top + 20);
-      this.scene.add(em.mesh);
-      this.stocks[pid] = em;
+      const m = canvasPlane(METER.w, METER.h, null, { layer: L.stock });
+      // canvas の中心と円の中心のずれを足す
+      at(m.mesh, METER[pid].x, METER[pid].top + METER.h / 2 - METER.cy);
+      this.scene.add(m.mesh);
+      this.stocks[pid] = m;
+      this.piles[pid] = {};
+      for (const kind of ['deck', 'grave']) {
+        const pl = canvasPlane(PILE.w, PILE.h, null, { layer: L.stock, scale: Math.min(2.5, RES * 1.3) });
+        at(pl.mesh, PILE[pid][kind], PILE.top);
+        this.scene.add(pl.mesh);
+        this.piles[pid][kind] = pl;
+      }
       const k = KEYS[pid];
       const re = canvasPlane(100, 100, (ctx, w, h) => drawButton(ctx, w, h, 'reroll', `${k.reroll} 引き直し`), { layer: L.panels });
       at(re.mesh, BTN[pid].x, BTN.reroll);
-      const dk = canvasPlane(100, 100, null, { layer: L.panels });
-      at(dk.mesh, BTN[pid].x, BTN.deck);
-      this.scene.add(re.mesh, dk.mesh);
+      this.scene.add(re.mesh);
       this.trash[pid] = re;
-      this.decks[pid] = dk;
       const hint = canvasPlane(640, 40, null, { layer: L.panels });
       this.scene.add(hint.mesh);
       this.hints[pid] = hint;
@@ -2455,17 +2403,17 @@ export class View {
         s.key = null;
       });
     }
-    const mid = (xs) => (xs[0] + xs.at(-1)) / 2;
-    // 2P は右の魔法陣の説明と重ならないよう少し左に寄せる
-    at(this.hints.p1.mesh, mid(layout.p1), 742);
-    at(this.hints.p2.mesh, mid(layout.p2) - 60, 742);
-    at(this.hints.solo.mesh, mid(layout.solo), 742);
+    // 操作のヒントは、左右のメーターの下の「撃つ」「発動待ちに」と重ならないよう内側に寄せる
+    at(this.hints.p1.mesh, 640, 742);
+    at(this.hints.p2.mesh, 1300, 742);
+    at(this.hints.solo.mesh, 900, 742);
     for (const [hid, hint] of Object.entries(this.hints)) {
       hint.mesh.visible = ids.includes(hid);
       hint.draw((ctx, w, h) => drawHint(ctx, w, h, hid));
     }
     // 一人モードの山札・引き直しは左下の1組だけ
-    this.trash.p2.mesh.visible = this.decks.p2.mesh.visible = !SOLO;
+    this.trash.p2.mesh.visible = !SOLO;
+    this.piles.p2.deck.mesh.visible = this.piles.p2.grave.mesh.visible = !SOLO || SPLIT;
     const box = SOLO ? ITEM_BOX.solo : ITEM_BOX.duo;
     at(this.itemPlane.mesh, box.x, box.top);
     this.helpPlane.draw(drawHelp);
@@ -2510,9 +2458,8 @@ export class View {
   drawStocks() {
     const g = this.game;
     const active = this.phase === 'player';
-    this.magazine.draw((ctx, w, h) => drawMagazine(ctx, w, h, g.players.p1));
     for (const pid of PIDS) {
-      this.stocks[pid].draw((ctx, w, h) => drawEmblem(ctx, w, h, pid, g.players[pid], active && g.canAct(pid)));
+      this.stocks[pid].draw((ctx, w, h) => drawMeter(ctx, w, h, pid, g.players[pid], active && g.canAct(pid)));
     }
   }
 
@@ -2548,14 +2495,15 @@ export class View {
     }
   }
 
-  // 山札の数（コストは紋章の赤丸に出す）
+  // 山札・墓地とメーター（コストはメーター中央の赤い数字）
+  // 一人モードで山札を混ぜたときは、共通の山札・墓地を左の1組だけに出す
   drawPanel(pid) {
     const p = this.game.players[pid];
-    // 一人モードは左下の1組に、2人分（混ぜたときは共通）の山札をまとめて出す
-    const piles = [...new Set(SOLO ? [this.game.pile('p1'), this.game.pile('p2')] : [this.game.pile(pid)])];
-    const count = (k) => piles.reduce((a, q) => a + q[k].length, 0);
-    this.decks[pid].draw((ctx, w, h) => drawButton(ctx, w, h, 'deck', `山札${count('deck')}・捨て${count('discard')}`));
-    this.stocks[pid].draw((ctx, w, h) => drawEmblem(ctx, w, h, pid, p, this.phase === 'player' && this.game.canAct(pid)));
+    const pile = this.game.pile(pid);
+    const pl = this.piles[pid];
+    pl.deck.draw((ctx, w, h) => drawPile(ctx, w, h, 'deck', pile.deck));
+    pl.grave.draw((ctx, w, h) => drawPile(ctx, w, h, 'grave', pile.discard));
+    this.stocks[pid].draw((ctx, w, h) => drawMeter(ctx, w, h, pid, p, this.phase === 'player' && this.game.canAct(pid)));
   }
 
   drawCharPanel(pid) {
@@ -2653,8 +2601,8 @@ export class View {
       case 'costGain': {
         this.drawPanel(e.pid);
         this.refreshHands();
-        const em = EMBLEM[e.pid];
-        this.popText(em.x - 30, em.top - 130, `コスト+${e.amount}`, '#e02a24', 30);
+        const m = METER[e.pid];
+        this.popText(m.x, m.top - 20, `コスト+${e.amount}`, '#e02a24', 30);
         return;
       }
       case 'av':
@@ -2830,7 +2778,8 @@ export class View {
 
   // 弾丸: 弾倉（またはルスカー）から翼竜へ飛ばす
   async shotFx(e) {
-    const from = e.fromStock ? { x: MAG.x + 60, top: MAG.top - MAG.h / 2 + 22 } : this.targetPoint('p1');
+    // 弾倉から撃つときは、撃った弾のあったマス（今の弾の数＝その位置）から飛ぶ
+    const from = e.fromStock ? meterNode('p1', this.game.players.p1.stock.length) : this.targetPoint('p1');
     const to = this.targetPoint('enemy');
     const b = canvasPlane(70, 30, (ctx) => {
       ctx.save();
@@ -2849,10 +2798,9 @@ export class View {
 
   // アルカナ: 魔法陣の位置から、敵が使っているカードへ飛ばす（当たったアルカナは魔法陣から抜けて番号が繰り上がる）
   async arcanaFx(e) {
-    const em = EMBLEM.p2;
-    const [nx, ny] = circleNode(e.index, em.x, em.top);
+    const node = meterNode('p2', e.index);
     const a = canvasPlane(70, 70, (ctx) => drawArcanaShape(ctx, 35, 35, 1, '#fff3cf'), { layer: L.reveal + 2 });
-    at(a.mesh, nx, ny);
+    at(a.mesh, node.x, node.top);
     this.scene.add(a.mesh);
     this.drawStocks();
     await this.tween(a.mesh.position, { x: REVEAL.x, y: H - REVEAL.top }, 280, 'in');
@@ -2912,7 +2860,7 @@ export class View {
   }
 
   denyStock(pid, err) {
-    const m = (pid === 'p1' ? this.magazine : this.stocks.p2).mesh;
+    const m = this.stocks[pid].mesh;
     const x = m.position.x;
     (async () => {
       for (const k of [1, -1, 0.6, -0.4, 0]) await this.tween(m.position, { x: x + 8 * k }, 45, 'linear');
@@ -3176,7 +3124,7 @@ export class View {
 
 // 弾倉・魔法陣に何かが入る（出る）ときの演出の位置
 function stockPoint(pid) {
-  return pid === 'p1' ? { x: MAG.x, top: MAG.top } : { x: EMBLEM.p2.x, top: EMBLEM.p2.top };
+  return { x: METER[pid].x, top: METER[pid].top };
 }
 
 const DENY = {
