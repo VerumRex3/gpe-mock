@@ -60,21 +60,17 @@ const POS = {
   p2: { x: 540, feet: 726 },
   enemy: { x: 1560, top: 490 },
 };
-// 手札は横に並べ、選んでいるカードを持ち上げて大きく出す（v0.19 のリボルバー風の扇はやめた）
-// 二人モードは低めに置いて頭だけ見せ、選んだカードが下から押し上げられる。一人モードはルスカーとラティシアの間を空ける
-// xs は各枠の中心の x、top は持ち上げていないカードの中心の高さ、lift は持ち上げる量、zoom は選んだときに大きくなる割合
-const HAND = {
-  duo: {
-    turn: { p1: [196, 318, 440, 562, 684], p2: [1236, 1358, 1480, 1602, 1724], scale: 0.75 },
-    av: { p1: [250, 450, 650], p2: [1270, 1470, 1670], scale: 0.9 },
-    top: 1010, lift: 175, zoom: 0.32,
-  },
-  solo: {
-    split: [230, 420, 610, 870, 1060, 1250], // 左3枚がルスカー、右3枚がラティシア。間を広めに空ける
-    mixed5: [481, 689, 897, 1105, 1313],
-    mixed6: [300, 500, 700, 900, 1100, 1300],
-    scale: 0.9, top: 930, lift: 75, zoom: 0.18,
-  },
+// 手札はリボルバーのシリンダーのように、画面の下に中心がある円の上に扇状に並べる（v0.19〜）
+// 選んでいるカードが真上に来て、持ち上がって大きくなる。左右キーで全体が回り、端まで回ったカードは薄くなって反対の端から出てくる
+// cx は扇の中心の x、R は円の半径、step は隣のカードとの角度、scale はカードの大きさ
+// top は持ち上げていない真上のカードの中心の高さ、lift は選んだカードを押し上げる量、zoom は選んだときに大きくなる割合
+// 二人モードは低めに置いて頭だけ見せ、選んだカードが下から押し上げられる。一人モードの山札キャラ別は、ルスカーとラティシアの間に gap 枚分の隙間を空ける
+const FAN = {
+  p1: { cx: 440, R: 800, step: 0.16, scale: 0.75 },
+  p2: { cx: 1480, R: 800, step: 0.16, scale: 0.75 },
+  solo: { cx: 790, R: 1600, step: 0.1, scale: 0.85 },
+  duo: { top: 1010, lift: 175, zoom: 0.32 },
+  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.5 },
 };
 // 掛け合いの吹き出し（キャラの頭上より上、敵カードを大きく出す位置とは重ならない高さ）
 const BUBBLE_X = { p1: POS.p1.x - 36, p2: POS.p2.x + 73 };
@@ -2271,19 +2267,20 @@ export class View {
 
   buildHands() {
     this.hands = { p1: [], p2: [], solo: [] };
+    this.fanRot = { p1: 0, p2: 0, solo: 0 };
     for (const hid of Object.keys(this.hands)) {
       const n = hid === 'solo'
         ? Math.max(RULES.soloHandSize, RULES.handSize * 2, RULES.turn.soloHandSize)
         : Math.max(RULES.handSize, RULES.turn.handSize);
       const col = hid === 'solo' ? SOLO_COL : PLIGHT[hid];
       for (let i = 0; i < n; i++) {
-        const group = at(new THREE.Group(), 0, HAND.solo.top);
+        const group = at(new THREE.Group(), FAN[hid].cx, FAN.one.top);
         const glow = canvasPlane(CARD_W + 50, CARD_H + 50, (ctx, w, h) => drawCardGlow(ctx, w, h, col), { layer: L.cards - 1 });
         glow.mesh.visible = false;
         const card = canvasPlane(CARD_W, CARD_H, null, { layer: L.cards, scale: Math.min(2.5, RES * 1.3) });
         group.add(glow.mesh, card.mesh);
         this.scene.add(group);
-        this.hands[hid].push({ group, glow, card, home: group.position.clone(), base: 1, lift: 0, slide: { y: 0 }, shake: { x: 0 }, key: null });
+        this.hands[hid].push({ group, glow, card, home: group.position.clone(), lift: 0, slide: { y: 0 }, shake: { x: 0 }, key: null });
       }
     }
   }
@@ -2353,24 +2350,48 @@ export class View {
       if (!m.userData.busy) m.rotation.z = Math.sin(t * 1.2 + i * 1.1) * 0.03;
     });
 
-    if (this.game) for (const hid of this.game.handIds()) this.updateHand(hid, dt);
+    if (this.game) for (const hid of this.game.handIds()) this.updateFan(hid, dt);
 
     if (this.parry?.active) this.updateParry(dt);
   }
 
-  // 手札: 選んでいるカードを持ち上げて大きくし、一番手前に描く
-  updateHand(hid, dt) {
-    const cfg = SOLO ? HAND.solo : HAND.duo;
+  // 扇（シリンダー）: 各枠の円周上の位置 u（キャラの境目には隙間を足す）を、カーソルの位置へ近い向きに回す
+  // d はカーソルから円周上でどれだけ離れているか。端（lo と lo + len）に近づいたカードは薄くして、反対の端へ回り込ませる
+  updateFan(hid, dt) {
+    const fan = FAN[hid];
+    const cfg = SOLO ? FAN.one : FAN.duo;
+    const n = this.game.holder(hid).hand.length;
+    const gap = SPLIT && hid === 'solo' ? cfg.gap : 0;
+    const half = n / 2;
+    // 山札キャラ別は、ルスカーの最後とラティシアの最初の間、ラティシアの最後とルスカーの最初の間（回り込み側）に隙間
+    const u = (k) => k + (gap && k >= half ? gap : 0);
+    const len = n + gap * 2;
+    const wrap = (v) => ((v % len) + len) % len;
+    const target = u(this.cursor[hid]);
+    const diff = wrap(target - this.fanRot[hid] + len / 2) - len / 2;
+    this.fanRot[hid] = wrap(this.fanRot[hid] + diff * Math.min(1, dt * 0.018));
+    const lo = gap ? -len / 2 + 0.35 : -Math.floor(n / 2) - 0.5;
+    const fade = gap ? 0.3 : 0.5;
     this.hands[hid].forEach((s, i) => {
+      if (i >= n) return;
+      const d = wrap(u(i) - this.fanRot[hid] - lo) + lo;
+      const edge = Math.min(d - lo, lo + len - d);
+      const alpha = Math.max(0, Math.min(1, edge / fade));
+      const a = d * fan.step;
       const sel = this.phase === 'player' && this.cursor[hid] === i && this.game.canAct(hid);
       s.lift += ((sel ? 1 : 0) - s.lift) * Math.min(1, dt * 0.016);
+      s.home.x = fan.cx + fan.R * Math.sin(a);
+      s.home.y = H - (cfg.top + fan.R * (1 - Math.cos(a)));
       s.group.position.x = s.home.x + s.shake.x;
       s.group.position.y = s.home.y + s.lift * cfg.lift + s.slide.y;
-      const sc = s.base * (1 + s.lift * cfg.zoom);
+      s.group.rotation.z = -a * (1 - s.lift);
+      const sc = fan.scale * (1 + s.lift * cfg.zoom) * (1 - 0.06 * Math.min(1, Math.abs(d)));
       s.group.scale.set(sc, sc, 1);
+      s.card.mesh.material.opacity = alpha;
       s.glow.mesh.visible = sel;
-      s.card.mesh.renderOrder = L.cards + (sel ? 3 : 0);
-      s.glow.mesh.renderOrder = sel ? L.cards + 2 : L.cards - 1;
+      // 選んでいるカードを一番手前に、残りは真上に近いほど手前に描く
+      s.card.mesh.renderOrder = sel ? L.cards + 3.5 : L.cards + 3 - Math.min(3, Math.abs(d)) * 0.6;
+      s.glow.mesh.renderOrder = L.cards + 3.4;
     });
   }
 
@@ -2413,26 +2434,18 @@ export class View {
     SPLIT = this.game.split;
     TURN = this.game.turnBased;
     const ids = this.game.handIds();
-    // 手札の並びはモード・進行・山札の分け方で変わる
-    const d = HAND.duo[TURN ? 'turn' : 'av'];
-    const layout = {
-      p1: { xs: d.p1, scale: d.scale, top: HAND.duo.top },
-      p2: { xs: d.p2, scale: d.scale, top: HAND.duo.top },
-      solo: { xs: SPLIT ? HAND.solo.split : TURN ? HAND.solo.mixed6 : HAND.solo.mixed5, scale: HAND.solo.scale, top: HAND.solo.top },
-    };
+    // 手札は扇に並べる。枚数はモード・進行・山札の分け方で変わるので、使わない枠は隠す
     for (const [hid, slots] of Object.entries(this.hands)) {
-      const { xs, scale, top } = layout[hid];
+      const n = ids.includes(hid) ? this.game.holder(hid).hand.length : 0;
       slots.forEach((s, i) => {
-        s.group.visible = ids.includes(hid) && i < xs.length;
-        if (i < xs.length) s.home.set(xs[i], H - top, 0);
-        s.base = scale;
+        s.group.visible = i < n;
         s.key = null;
       });
+      this.fanRot[hid] = (this.cursor[hid] ?? 0) + (SPLIT && hid === 'solo' && (this.cursor[hid] ?? 0) >= n / 2 ? FAN.one.gap : 0);
     }
-    const mid = (xs) => (xs[0] + xs.at(-1)) / 2;
-    at(this.hints.p1.mesh, mid(layout.p1.xs), 742);
-    at(this.hints.p2.mesh, mid(layout.p2.xs), 742);
-    at(this.hints.solo.mesh, mid(layout.solo.xs), 742);
+    at(this.hints.p1.mesh, FAN.p1.cx, 742);
+    at(this.hints.p2.mesh, FAN.p2.cx, 742);
+    at(this.hints.solo.mesh, FAN.solo.cx, 742);
     for (const [hid, hint] of Object.entries(this.hints)) {
       hint.mesh.visible = ids.includes(hid);
       hint.draw((ctx, w, h) => drawHint(ctx, w, h, hid));
