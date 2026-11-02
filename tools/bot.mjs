@@ -62,7 +62,8 @@ function candidates(g) {
       if (g.pool && g.lastActor && pid !== g.lastActor && !c.free) s += 0.8;
       out.push({ s, f: () => g.playCard(hid, slot) });
     });
-    if (!(g.turnBased && g.rerolled[hid])) out.push({ s: 1.2, f: () => g.reroll(hid) });
+    // 引き直しはコストも行動値も使わず、ターン（行動値制は敵の行動）ごとに1回。行動値制は他に打つ手がないときだけ
+    if (!g.rerolled[hid] && (g.turnBased || !out.some((o) => o.s > 0))) out.push({ s: 1.2, f: () => g.reroll(hid) });
   }
   return out;
 }

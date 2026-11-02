@@ -59,7 +59,7 @@ export class Game {
     else if (this.split) this.handSize = this.turnBased ? t.soloHandSize / 2 : RULES.handSize;
     else this.handSize = this.turnBased ? t.soloHandSize : RULES.soloHandSize;
     this.ended = { p1: false, p2: false }; // ターン制: 「ターン終了」を押したか
-    this.rerolled = { p1: false, p2: false }; // ターン制: このターンに引き直したか（1ターン1回）
+    this.rerolled = { p1: false, p2: false }; // このターン（行動値制は敵が次に行動するまで）に引き直したか。1回まで
     this.enemyActsLeft = 0; // ターン制: このターンに敵があと何回行動するか
     this.round = 1; // 敵が行動するたびに進む
     this.over = null; // 'win' | 'lose'
@@ -299,11 +299,13 @@ export class Game {
     this.fireBullet(p1.stock.pop().card, ev, true);
   }
 
+  // 引き直しはコストも行動値も使わない。そのかわり、ターン制は1ターンに1回、行動値制は敵が次に行動するまでに1回
+  // （v0.32 から行動値制でも行動値を使わない。行動値が残り1のときに、引き直しのせいで何もできずに敵が動くのを避けるため）
   reroll(hid) {
     if (!this.canAct(hid)) return null;
-    if (this.turnBased && this.rerolled[hid]) return { error: 'rerolled' };
+    if (this.rerolled[hid]) return { error: 'rerolled' };
     this.saveUndo(hid);
-    if (this.turnBased) this.rerolled[hid] = true;
+    this.rerolled[hid] = true;
     const h = this.holder(hid);
     // ターン制は、今手札に残っている枠だけ引き直す（使って空いた枠は埋めない）
     const redraw = h.hand.map((c) => !this.turnBased || !!c);
@@ -311,9 +313,9 @@ export class Game {
     h.hand = h.hand.map(() => null);
     for (let i = 0; i < h.hand.length; i++) if (redraw[i]) h.hand[i] = this.draw(this.drawPile(hid, i));
     const ev = [log(`${this.solo ? '' : `${NAME[hid]} `}手札を引き直した`)];
-    // ターン制では引き直しは1ターン1回で、コストは増えない
-    if (!this.turnBased) for (const q of this.alivePids()) this.gainCost(q, RULES.costGain.reroll, ev);
-    this.afterAction(hid, ev, false);
+    // 引き直しではコストは回復しない（v0.31 までの行動値制は2人とも回復していた）
+    if (RULES.costGain.reroll) for (const q of this.alivePids()) this.gainCost(q, RULES.costGain.reroll, ev);
+    this.tickDecay(ev);
     this.checkOver(ev);
     ev.push({ type: 'cost' });
     return { events: ev };
@@ -516,7 +518,11 @@ export class Game {
     if (fx.selfCost) this.gainCost(pid, fx.selfCost, ev);
     if (fx.healAll) for (const t of this.alivePids()) this.heal(t, fx.healAll, ev);
     if (fx.guardAll) for (const t of this.alivePids()) this.gainBlock(t, fx.guardAll, ev);
-    if (fx.costAll) for (const t of this.alivePids()) this.gainCost(t, fx.costAll, ev);
+    // 共有のコストには2人分ではなく costShared を1回だけ足す
+    if (fx.costAll) {
+      if (this.pool) this.gainCost(this.alivePids()[0], fx.costShared ?? fx.costAll, ev);
+      else for (const t of this.alivePids()) this.gainCost(t, fx.costAll, ev);
+    }
   }
 
   // ---------------- 敵の行動
@@ -649,6 +655,7 @@ export class Game {
       ev.push({ type: 'newTurn', cost });
     } else {
       for (const pid of this.alivePids()) this.gainCost(pid, RULES.costGain.enemy, ev);
+      this.rerolled = { p1: false, p2: false };
     }
     // 取り消せるのは敵が次に行動するまで（v0.6 まではここで消しておらず、敵の行動をまたいで戻せていた）
     this.undoStack = [];

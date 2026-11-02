@@ -117,10 +117,10 @@ function helpRows() {
       ['手札', `ターン開始時に残った手札を捨て、${SOLO ? `${RULES.turn.soloHandSize}枚${SPLIT ? '（ルスカーとラティシア半分ずつ）' : ''}` : `1人${RULES.turn.handSize}枚`}引く。使ったカードの枠はそのターンは空のまま。引き直しは1ターンに1回で、残っている枠だけ引き直す。`],
       ['コスト', `手札のそばの「今／上限」。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。${!SOLO && RULES.turn.refill ? 'カードを使うと、空いた枠にすぐ1枚引く。' : ''}`],
     ] : [
-      ['行動値', `カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテムは行動値を消費しない。`],
+      ['行動値', `カードは使ったその場で発動する。カードを使うたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテム・手札の引き直しは行動値を消費しない。引き直しはコストもかからないが、敵が次に行動するまでに1回だけ。`],
       ['コスト', SOLO && RULES.soloCost.shared
-        ? `手札の右下の「今／上限」。2人で共有する（初期値 ${RULES.soloCost.start}、上限 ${RULES.soloCost.max}）。回復はかけら（½）単位で、半円がかけら1つ。直前と違うキャラのカードを使うと+${costText(RULES.costGain.partner)}（片方のキャラばかり使わないように）、手札を引き直すと+${costText(RULES.costGain.reroll * 2)}、敵が行動すると+${costText(RULES.costGain.enemy * 2)}。`
-        : `手札のそばの「今／上限」。初期値 ${RULES.startCost}、上限 ${RULES.costMax}。カードを使うと、相方のコストが${costText(RULES.costGain.partner)}回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+${costText(RULES.costGain.reroll)}、敵が行動すると2人とも+${costText(RULES.costGain.enemy)}。`],
+        ? `手札の右下の「今／上限」。2人で共有する（初期値 ${RULES.soloCost.start}、上限 ${RULES.soloCost.max}）。回復はかけら（½）単位で、半円がかけら1つ。直前と違うキャラのカードを使うと+${costText(RULES.costGain.partner)}（片方のキャラばかり使わないように）、敵が行動すると+${costText(RULES.costGain.enemy * 2)}。`
+        : `手札のそばの「今／上限」。初期値 ${RULES.startCost}、上限 ${RULES.costMax}。カードを使うと、相方のコストが${costText(RULES.costGain.partner)}回復する（行動値を消費しないカードを除く）。敵が行動すると2人とも+${costText(RULES.costGain.enemy)}。`],
     ]),
     ['掛け合い', `敵が動くとき、使うカードの種類（攻撃・防御・特殊）に合わせて2人が一言交わす（台詞は仮）。${TURN ? '' : '行動値制では、敵が前回と違う種類のカードを使ったときだけ。'}`],
     ['取り消し', SOLO
@@ -1251,7 +1251,7 @@ function drawCharPanel(ctx, w, h, pid, d, p, game) {
 // 状況の一言（敵の行動中・パリィ中は赤）
 function drawPhasePill(ctx, w, h, phase) {
   const text = {
-    player: TURN ? (SOLO ? '「ターン終了」で敵が行動' : '2人とも「ターン終了」で敵が行動') : 'カードを使う・引き直すたびに、敵の行動値 −1', enemy: '敵の行動', parry: 'パリィ！',
+    player: TURN ? (SOLO ? '「ターン終了」で敵が行動' : '2人とも「ターン終了」で敵が行動') : 'カードを使うたびに、敵の行動値 −1', enemy: '敵の行動', parry: 'パリィ！',
   }[phase];
   if (!text) return;
   const calm = phase === 'player';
@@ -1900,7 +1900,7 @@ function soloBox(ctx, x, y) {
         ? `カード選択（ルスカー${TURN ? RULES.turn.soloHandSize / 2 : RULES.handSize}枚＋ラティシア${TURN ? RULES.turn.soloHandSize / 2 : RULES.handSize}枚）`
         : `カード選択（2人のカードが混ざった手札${TURN ? RULES.turn.soloHandSize : RULES.soloHandSize}枚）`], [k.solo.use, 'カードを使う／パリィを止める'],
       [`${k.p1.stock} ／ ${k.p2.stock}`, 'ルスカーの弾丸を撃つ／ラティシアのアルカナを発動待ちに'],
-      [k.solo.reroll, TURN ? '手札を引き直す（1ターン1回）' : '手札を引き直す'], [k.solo.undo, '直前の行動を取り消す'],
+      [k.solo.reroll, TURN ? '手札を引き直す（1ターン1回）' : '手札を引き直す（敵の行動までに1回）'], [k.solo.undo, '直前の行動を取り消す'],
       ...(TURN ? [[k.solo.end, 'ターン終了']] : []), [`${ITEM_KEYS[0]}〜${ITEM_KEYS.at(-1)}`, 'アイテムを使う'],
     ],
     tagline: '2人の主人公を1人で操作する',
@@ -1938,7 +1938,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.31', w / 2, 398);
+  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.32', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -3066,7 +3066,8 @@ export class View {
 
   // 理由だけを出す拒否（ターン制の2回目の引き直しなど）
   denyText(pid, err) {
-    this.popText(this.hints[pid].mesh.position.x, 690, DENY[err] ?? '使えない', '#d23a3a', 26);
+    const text = err === 'rerolled' && !TURN ? '引き直しは敵の行動までに1回' : DENY[err] ?? '使えない';
+    this.popText(this.hints[pid].mesh.position.x, 690, text, '#d23a3a', 26);
   }
 
   denyItem(i) {

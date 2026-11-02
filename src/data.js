@@ -2,7 +2,7 @@
 
 export const RULES = {
   playerMaxHp: 70,
-  enemyMaxHp: 67, // 行動値制（一人モード）の敵 HP。v0.30 で 90→75、v0.31（共有コスト）で 67
+  enemyMaxHp: 80, // 行動値制（一人モード）の敵 HP。v0.30 で 90→75、v0.31（共有コスト）で 67、v0.32（引き直しの回復なし・敵の行動で+2）で 80
   handSize: 3, // 二人モードの1人あたりの手札
   soloHandSize: 5, // 一人モード（山札を混ぜる場合）の手札
   // 一人モードの山札: 'split' = キャラ別のまま手札は 3:3（handSize ずつ） / 'mixed' = 2人のデッキを1つに混ぜる
@@ -11,7 +11,8 @@ export const RULES = {
   startCost: 3,
   costMax: 3,
   // 行動値制のコスト回復: 相方がカードを使ったとき・手札を引き直したとき（2人とも）・敵が行動したとき（2人とも）
-  costGain: { partner: 0.5, reroll: 0.5, enemy: 0.5 },
+  // v0.32: 引き直しは回復しない（コストも行動値も使わず、敵の行動までに1回）
+  costGain: { partner: 0.5, reroll: 0, enemy: 1 },
   // 一人モード（行動値制）はコストを2人で共有する（v0.31）。start・max は2人分。相方の回復（costGain.partner）は、
   // 直前と違うキャラのカードを使ったときだけ（片方のキャラばかり使わせないため）
   soloCost: { shared: true, start: 6, max: 6 },
@@ -145,7 +146,8 @@ export const CARDS = {
 export const ITEMS = [
   { id: 'incense', name: '闘志の香', fx: { p1Bonus: 6 }, text: 'ルスカーの次の攻撃+6' },
   { id: 'charm', name: '守りの護符', fx: { guardAll: 6 }, text: '2人とも防御+6' },
-  { id: 'crystal', name: '魔力の結晶', fx: { costAll: 2 }, text: '2人ともコスト+2' },
+  // costShared: 一人モード（共有のコスト）で足す量。2人分の +4 は強すぎ、+2 では元の強さに届かないので間の +3
+  { id: 'crystal', name: '魔力の結晶', fx: { costAll: 2, costShared: 3 }, text: 'コスト+2ずつ（一人は+3）' },
 ];
 
 // 弾丸とアルカナは初期デッキに入らない（再型・占星統治で生まれ、使うと捨て札を経てデッキに混ざる）
