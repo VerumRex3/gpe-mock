@@ -67,13 +67,13 @@ const POS = {
 // top は持ち上げていない真上のカードの中心の高さ、lift は選んだカードを押し上げる量、zoom は選んだときに大きくなる割合
 // 二人モードは低めに置いて頭だけ見せ、選んだカードが下から押し上げられる。一人モードの山札キャラ別は、ルスカーとラティシアの間に gap 枚分の隙間を空ける
 const FAN = {
-  p1: { cx: 440, R: 800, step: 0.16, scale: 0.75, reach: 2 },
-  p2: { cx: 1480, R: 800, step: 0.16, scale: 0.75, reach: 2 },
-  solo: { cx: 790, R: 1600, step: 0.1, scale: 0.85, reach: 3.5 },
+  p1: { cx: 450, R: 800, step: 0.14, scale: 0.85, reach: 2 },
+  p2: { cx: 1470, R: 800, step: 0.14, scale: 0.85, reach: 2 },
+  solo: { cx: 780, R: 1600, step: 0.1, scale: 1, reach: 3.5 },
   duo: { top: 1010, lift: 175, zoom: 0.32 },
   // tuck: 山札キャラ別で、カーソルがない側のキャラのカードをしまう並べ方。first は境目のカードから最初のカードまで（扇のカード何枚分か）、
-  // R と step はしまう側を並べる小さな円の半径と1枚ごとの角度、spacing は扇の向きを決めるときに数える幅、shrink・dim は縮める・暗くする割合
-  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.1, tuck: { first: 0.8, R: 520, step: 0.2, spacing: 0.7, shrink: 0.12, dim: 0.2 } },
+  // R と step はしまう側を並べる小さな円の半径と1枚ごとの角度、spacing は扇の向きを決めるときに数える幅、shrink・dim は縮める・暗くする割合、drop は下げる量
+  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.1, tuck: { first: 0.8, R: 520, step: 0.2, spacing: 0.7, shrink: 0.12, dim: 0.2, drop: 45 } },
 };
 // 掛け合いの吹き出し（キャラの頭上より上、敵カードを大きく出す位置とは重ならない高さ）
 const BUBBLE_X = { p1: POS.p1.x - 36, p2: POS.p2.x + 73 };
@@ -1877,7 +1877,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.25', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.26', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2403,6 +2403,7 @@ export class View {
       const isTucked = tucked(i);
       const k = isTucked ? Math.abs(i - (focus === 0 ? Math.floor(half) : Math.ceil(half) - 1)) : 0;
       const t = isTucked ? tuckAt(k) : onFan((u[i] - center) * fan.step);
+      if (isTucked) t.y += tk.drop;
       // 位置・向き・しまい具合は少しずつ目標へ寄せる（並びが変わるときもなめらかに動く）
       if (s.fx == null) Object.assign(s, { fx: t.x, fy: t.y, fa: t.a, tuck: isTucked ? 1 : 0 });
       s.fx += (t.x - s.fx) * ease;
