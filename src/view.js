@@ -59,17 +59,17 @@ const POS = {
   p2: { x: 722, feet: 726 },
   enemy: { x: 1325, top: 490 },
 };
-const HAND_X = { p1: [250, 450, 650], p2: [1270, 1470, 1670], solo: [541, 749, 957, 1165, 1373],
+const HAND_X = { p1: [250, 450, 650], p2: [1270, 1470, 1670], solo: [481, 689, 897, 1105, 1313],
   // 一人モード・山札キャラ別: 左3枚がルスカー、右3枚がラティシア
-  split: [300, 500, 700, 940, 1140, 1340],
+  split: [260, 460, 660, 900, 1100, 1300],
   // ターン制: 二人モードは1人5枚（少し縮めて重ねる）、一人モード・混ぜるは6枚
   turnP1: [196, 318, 440, 562, 684], turnP2: [1236, 1358, 1480, 1602, 1724],
-  solo6: [330, 530, 730, 930, 1130, 1330] };
+  solo6: [300, 500, 700, 900, 1100, 1300] };
 const TURN_HAND_SCALE = 0.75;
 // 掛け合いの吹き出し（キャラの頭上より上、敵カードを大きく出す位置とは重ならない高さ）
 const BUBBLE_X = { p1: 450, p2: 795 };
 // アイテム欄。二人モードは2人の手札の間、一人モードは手札の右
-const ITEM_BOX = { w: 210, h: 290, duo: { x: 960, top: 930 }, solo: { x: 1590, top: 930 } };
+const ITEM_BOX = { w: 210, h: 290, duo: { x: 960, top: 930 }, solo: { x: 1530, top: 930 } };
 const CARD_W = 190;
 const CARD_H = 300;
 const HAND_TOP = 772 + CARD_H / 2;
@@ -83,7 +83,7 @@ const ESLOT = { xs: [538, 747, 956, 1165, 1374], top: 72, w: 186, h: 140 };
 const SLOT = { w: 140, h: 140, cx: 70, cy: 68, r: 34, label: 124 };
 const SIDE = { p1: 62, p2: W - 62, tops: { stock: 740, grave: 858, deck: 968 } };
 // 引き直しはアイテム欄の横（二人モードは 1P が左・2P が右、一人モードは右）。top は丸の中心
-const REROLL = { p1: 803, p2: 1117, solo: 1747, top: 930 };
+const REROLL = { p1: 803, p2: 1117, solo: 1700, top: 930 };
 // 地面と下の黒帯の境目
 const GROUND = { top: 699, bottom: 781 };
 const MINI_W = 88;
@@ -1869,7 +1869,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.15', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.16', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
