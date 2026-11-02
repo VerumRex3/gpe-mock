@@ -59,17 +59,17 @@ const POS = {
   p2: { x: 722, feet: 726 },
   enemy: { x: 1325, top: 490 },
 };
-const HAND_X = { p1: [335, 543, 752], p2: [1160, 1369, 1579], solo: [541, 749, 957, 1165, 1373],
+const HAND_X = { p1: [250, 450, 650], p2: [1270, 1470, 1670], solo: [541, 749, 957, 1165, 1373],
   // 一人モード・山札キャラ別: 左3枚がルスカー、右3枚がラティシア
   split: [300, 500, 700, 940, 1140, 1340],
   // ターン制: 二人モードは1人5枚（少し縮めて重ねる）、一人モード・混ぜるは6枚
-  turnP1: [200, 342, 485, 627, 770], turnP2: [1150, 1292, 1435, 1577, 1720],
+  turnP1: [196, 318, 440, 562, 684], turnP2: [1236, 1358, 1480, 1602, 1724],
   solo6: [330, 530, 730, 930, 1130, 1330] };
-const TURN_HAND_SCALE = 0.85;
+const TURN_HAND_SCALE = 0.75;
 // 掛け合いの吹き出し（キャラの頭上より上、敵カードを大きく出す位置とは重ならない高さ）
 const BUBBLE_X = { p1: 450, p2: 795 };
 // アイテム欄。二人モードは2人の手札の間、一人モードは手札の右
-const ITEM_BOX = { w: 210, h: 290, duo: { x: 957, top: 930 }, solo: { x: 1590, top: 930 } };
+const ITEM_BOX = { w: 210, h: 290, duo: { x: 960, top: 930 }, solo: { x: 1590, top: 930 } };
 const CARD_W = 190;
 const CARD_H = 300;
 const HAND_TOP = 772 + CARD_H / 2;
@@ -78,11 +78,12 @@ const REVEAL = { x: 960, top: 470 };
 // 敵カードは上の黒帯から吊るす
 const ESLOT = { xs: [538, 747, 956, 1165, 1374], top: 72, w: 186, h: 140 };
 // v0.14: 弾倉と紋章（照準・魔法陣）をやめ、左右の端に同じ大きさの丸アイコンを縦に並べた
-// （下から 引き直し・山札・墓地・弾丸／アルカナ。コストは弾丸／アルカナのアイコンの左上の赤丸）
+// （上から 弾丸／アルカナ・墓地・山札。コストは弾丸／アルカナのアイコンの左上の赤丸）
 // SLOT は1つのアイコンの canvas 内の配置、SIDE.tops は各アイコンの丸の中心の高さ
 const SLOT = { w: 140, h: 140, cx: 70, cy: 68, r: 34, label: 124 };
-const SIDE = { p1: 62, p2: W - 62, tops: { stock: 625, grave: 745, deck: 857, reroll: 967 } };
-// 左下・右下のボタン（引き直し・山札）
+const SIDE = { p1: 62, p2: W - 62, tops: { stock: 740, grave: 858, deck: 968 } };
+// 引き直しはアイテム欄の横（二人モードは 1P が左・2P が右、一人モードは右）。top は丸の中心
+const REROLL = { p1: 803, p2: 1117, solo: 1747, top: 930 };
 // 地面と下の黒帯の境目
 const GROUND = { top: 699, bottom: 781 };
 const MINI_W = 88;
@@ -97,7 +98,7 @@ function helpRows() {
     SOLO
       ? ['一人モード', `ルスカーとラティシアの2人を1人で操作する。${SPLIT ? '山札はキャラ別のままで、手札は左3枚がルスカー、右3枚がラティシア。使った枠はその持ち主の山札から引くので、いつも 3:3 になる。' : '2人のデッキは1つに混ざり、手札5枚から好きなカードを使う。'}カードの縁の色と名札が持ち主で、コストはその持ち主のメーターから払う。倒れたキャラのカードは使えない。`]
       : ['二人モード', `1台のキーボードを2人で使い、それぞれ自分の手札${TURN ? RULES.turn.handSize : RULES.handSize}枚を操作する。`],
-    ['画面', '左右の端に丸いアイコンを縦に並べている（上から 弾丸／アルカナ・墓地・山札・引き直し）。弾丸／アルカナのアイコンは、中の数字が弾倉・魔法陣の中身の数、周りの5つの粒が1つずつの中身（色は加護・属性、金色に光るのが発動待ち、白い三角が次に使われるもの）、左上の赤丸がコスト。墓地は捨て札で、墓石の帯の色が最後に捨てたカードの種類。'],
+    ['画面', '左右の端に丸いアイコンを縦に並べている（上から 弾丸／アルカナ・墓地・山札）。引き直しはアイテム欄の横。弾丸／アルカナのアイコンは、中の数字が弾倉・魔法陣の中身の数、周りの5つの粒が1つずつの中身（色は加護・属性、金色に光るのが発動待ち、白い三角が次に使われるもの）、左上の赤丸がコスト。墓地は捨て札で、墓石の帯の色が最後に捨てたカードの種類。'],
     ...(TURN ? [
       ['ターン', SOLO
         ? `好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。済んだら「ターン終了」（${SOLO_KEY.end}）で敵が1回行動し（激昂後は2回）、次のターンになる。`
@@ -1388,7 +1389,7 @@ function drawBubble(ctx, w, h, pid, text) {
   ctx.fillText(text, 18, 54);
 }
 
-// 左右の端に縦に並ぶ丸アイコン（下から 引き直し・山札・墓地・弾丸／アルカナ）。同じ大きさの白い丸に、半透明の小さな座布団を敷く
+// 丸アイコン（左右の端の 弾丸／アルカナ・墓地・山札と、アイテム欄の横の引き直し）。同じ大きさの白い丸に、半透明の小さな座布団を敷く
 // 下の名札は暗い帯にのせる（地面の上でも黒帯の上でも読めるように）
 function slotBase(ctx, w, label, { pad = 'rgba(12, 10, 18, 0.42)', face = '#ffffff' } = {}) {
   const { cx, cy, r } = SLOT;
@@ -1868,7 +1869,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.14', w / 2, 398);
+  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.15', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2232,7 +2233,10 @@ export class View {
     for (const pid of PIDS) {
       this.stocks[pid] = slot(pid, 'stock');
       this.piles[pid] = { grave: slot(pid, 'grave'), deck: slot(pid, 'deck') };
-      this.trash[pid] = slot(pid, 'reroll', (ctx, w, h) => drawRerollSlot(ctx, w, h, `${KEYS[pid].reroll} 引き直し`));
+      // 引き直しはアイテム欄の横。位置はモードで変わるので applyMode で置く
+      const re = canvasPlane(SLOT.w, SLOT.h, (ctx, w, h) => drawRerollSlot(ctx, w, h, `${KEYS[pid].reroll} 引き直し`), { layer: L.panels });
+      this.scene.add(re.mesh);
+      this.trash[pid] = re;
       const hint = canvasPlane(640, 40, null, { layer: L.panels });
       this.scene.add(hint.mesh);
       this.hints[pid] = hint;
@@ -2420,6 +2424,7 @@ export class View {
     }
     // 一人モードの山札・引き直しは左下の1組だけ
     this.trash.p2.mesh.visible = !SOLO;
+    for (const pid of PIDS) at(this.trash[pid].mesh, SOLO ? REROLL.solo : REROLL[pid], REROLL.top + SLOT.h / 2 - SLOT.cy);
     this.piles.p2.deck.mesh.visible = this.piles.p2.grave.mesh.visible = !SOLO || SPLIT;
     const box = SOLO ? ITEM_BOX.solo : ITEM_BOX.duo;
     at(this.itemPlane.mesh, box.x, box.top);
