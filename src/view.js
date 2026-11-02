@@ -92,6 +92,8 @@ const SLOT = { w: 140, h: 140, cx: 70, cy: 68, r: 34, label: 124 };
 const SIDE = { p1: 62, p2: W - 62, tops: { stock: 740, grave: 858, deck: 968 } };
 // 引き直しはアイテム欄の横（二人モードは 1P が左・2P が右、一人モードは右）。top は丸の中心
 const REROLL = { p1: 803, p2: 1117, solo: 1700, top: 1005 };
+// コスト表示（今のコスト／上限）。二人モードは手札のすぐ横（1P は右下・2P は左下。引き直しの上）、一人モードは手札の右下に2人分並べる
+const COST_BOX = { duo: { p1: 803, p2: 1117, top: 880 }, solo: { p1: 1250, p2: 1350, top: 995 }, w: 110, h: 124 };
 // 地面と下の黒帯の境目
 const GROUND = { top: 699, bottom: 781 };
 const MINI_W = 88;
@@ -1444,6 +1446,54 @@ function slotCount(ctx, n, bg = '#111111') {
   ctx.fillText(String(n), x, y + 1);
 }
 
+// コスト: 白い丸に赤で「今／上限」。外側の輪と名札がキャラの色。上限を超えているとき（集中など）も、そのまま出す
+function drawCostBox(ctx, w, h, pid, cost, max, down) {
+  const cx = w / 2;
+  const cy = 50;
+  ctx.save();
+  if (down) ctx.globalAlpha = 0.45;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 46, 0, Math.PI * 2);
+  ctx.fillStyle = PCOL[pid];
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = '#e02a24';
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = font(11);
+  ctx.fillStyle = '#6b6470';
+  ctx.fillText('コスト', cx, cy - 22);
+  const now = String(cost);
+  const tail = `/${max}`;
+  ctx.font = font(now.length > 1 ? 28 : 32);
+  const nw = ctx.measureText(now).width;
+  ctx.font = font(17);
+  const tw = ctx.measureText(tail).width;
+  const x0 = cx - (nw + tw) / 2;
+  ctx.textAlign = 'left';
+  ctx.font = font(now.length > 1 ? 28 : 32);
+  ctx.fillStyle = cost > 0 ? '#e02a24' : '#9a9aa2';
+  ctx.fillText(now, x0, cy + 4);
+  ctx.font = font(17);
+  ctx.fillStyle = '#3a3440';
+  ctx.fillText(tail, x0 + nw, cy + 10);
+  ctx.textAlign = 'center';
+  ctx.font = font(13);
+  const nm = NAME[pid];
+  const pw = ctx.measureText(nm).width + 16;
+  rr(ctx, cx - pw / 2, h - 24, pw, 20, 10);
+  ctx.fillStyle = PCOL[pid];
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(nm, cx, h - 13);
+  ctx.restore();
+}
+
 // 引き直し（回る矢印）
 function drawRerollSlot(ctx, w, h, label) {
   const { cx, cy } = SLOT;
@@ -1509,7 +1559,7 @@ function drawGraveSlot(ctx, w, h, cards) {
 
 // 弾丸／アルカナ: 他のアイコンと見分けがつくよう、キャラの色の丸に弾・アルカナを白抜きで描き、
 // 周りを5つの粒の輪で囲む。粒が弾倉／魔法陣の中身で、ルスカーは加護の色、ラティシアは属性の色、発動待ちは金色に光る。
-// 白い三角が次に使われる粒。左上の赤丸がそのキャラのコスト
+// 白い三角が次に使われる粒。コストは v0.29 から手札のそばの COST_BOX に出す
 function drawStockSlot(ctx, w, h, pid, p, active) {
   const { cx, cy, r } = SLOT;
   const n = RULES.stockMax;
@@ -1574,21 +1624,6 @@ function drawStockSlot(ctx, w, h, pid, p, active) {
       ctx.restore();
     }
   }
-  // コスト（赤丸）
-  const bx = cx - r * 0.86;
-  const by = cy - r * 0.86;
-  ctx.beginPath();
-  ctx.arc(bx, by, 17, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = '#e02a24';
-  ctx.stroke();
-  ctx.fillStyle = '#e02a24';
-  ctx.font = font(String(p.cost).length > 1 ? 15 : 19);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(p.cost), bx, by + 1);
   ctx.restore();
   const k = keysOf(pid).stock;
   const label = pid === 'p1'
@@ -1872,7 +1907,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.28', w / 2, 398);
+  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.29', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2236,6 +2271,11 @@ export class View {
     for (const pid of PIDS) {
       this.stocks[pid] = slot(pid, 'stock');
       this.piles[pid] = { grave: slot(pid, 'grave'), deck: slot(pid, 'deck') };
+      // コスト表示は手札より手前（選んで持ち上げたカードよりは奥）。位置はモードで変わるので applyMode で置く
+      const cb = canvasPlane(COST_BOX.w, COST_BOX.h, null, { layer: L.cards + 3.45 });
+      this.scene.add(cb.mesh);
+      this.costBoxes ??= {};
+      this.costBoxes[pid] = cb;
       // 引き直しはアイテム欄の横。位置はモードで変わるので applyMode で置く
       const re = canvasPlane(SLOT.w, SLOT.h, (ctx, w, h) => drawRerollSlot(ctx, w, h, `${KEYS[pid].reroll} 引き直し`), { layer: L.panels });
       this.scene.add(re.mesh);
@@ -2488,6 +2528,8 @@ export class View {
     // 一人モードの山札・引き直しは左下の1組だけ
     this.trash.p2.mesh.visible = !SOLO;
     for (const pid of PIDS) at(this.trash[pid].mesh, SOLO ? REROLL.solo : REROLL[pid], REROLL.top + SLOT.h / 2 - SLOT.cy);
+    const cbPos = SOLO ? COST_BOX.solo : COST_BOX.duo;
+    for (const pid of PIDS) at(this.costBoxes[pid].mesh, cbPos[pid], cbPos.top);
     this.piles.p2.deck.mesh.visible = this.piles.p2.grave.mesh.visible = !SOLO || SPLIT;
     const box = SOLO ? ITEM_BOX.solo : ITEM_BOX.duo;
     at(this.itemPlane.mesh, box.x, box.top);
@@ -2580,6 +2622,19 @@ export class View {
     pl.deck.draw((ctx, w, h) => drawDeckSlot(ctx, w, h, pile.deck.length));
     pl.grave.draw((ctx, w, h) => drawGraveSlot(ctx, w, h, pile.discard));
     this.stocks[pid].draw((ctx, w, h) => drawStockSlot(ctx, w, h, pid, p, this.phase === 'player' && this.game.canAct(pid)));
+    this.costBoxes[pid].draw((ctx, w, h) => drawCostBox(ctx, w, h, pid, p.cost, this.costMax(), p.hp <= 0));
+  }
+
+  // コストの上限: 行動値制は RULES.costMax、ターン制はこのターンの予算
+  costMax() {
+    const g = this.game;
+    return g.turnBased ? g.turnCost(g.round) : RULES.costMax || '∞';
+  }
+
+  // コスト表示の画面上の位置（回復の演出に使う）
+  costPoint(pid) {
+    const pos = SOLO ? COST_BOX.solo : COST_BOX.duo;
+    return { x: pos[pid], top: pos.top - COST_BOX.h / 2 + 50 };
   }
 
   drawCharPanel(pid) {
@@ -2677,8 +2732,14 @@ export class View {
       case 'costGain': {
         this.drawPanel(e.pid);
         this.refreshHands();
-        const sp = stockPoint(e.pid);
-        this.popText(sp.x + (e.pid === 'p1' ? 80 : -80), sp.top - 40, `コスト+${e.amount}`, '#e02a24', 30);
+        // コスト表示の上に「+2」を出し、輪を光らせる
+        const cp = this.costPoint(e.pid);
+        this.popText(cp.x, cp.top - 56, `+${e.amount}`, '#e02a24', 40);
+        this.ring(cp.x, cp.top, '#ff8a7a');
+        const m = this.costBoxes[e.pid].mesh;
+        this.killTweens(m.scale);
+        m.scale.set(1.18, 1.18, 1);
+        this.tween(m.scale, { x: 1, y: 1 }, 260, 'out');
         return;
       }
       case 'av':

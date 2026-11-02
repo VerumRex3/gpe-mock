@@ -68,7 +68,7 @@ export class Game {
     this.enemy = {
       name: ENEMY.name, hp: enemyHp, maxHp: enemyHp, block: 0,
       strength: 0, frenzy: false, decay: 0, resist: 0,
-      cards: ENEMY.lineup.map((id) => makeEnemyCard(id, this.turnBased ? this.turnRule('cardHpBonus') : 0)),
+      cards: ENEMY.lineup.map((id) => makeEnemyCard(id, this.turnBased ? this.turnRule('cardHpBonus') : RULES.av.cardHpBonus)),
     };
     this.avMax = RULES.actionValue;
     this.av = this.avMax;
@@ -504,7 +504,7 @@ export class Game {
   }
 
   enemyDamage(card) {
-    const base = Math.max(0, card.dmg + this.enemy.strength + (this.turnBased ? this.turnRule('dmgBonus') : 0));
+    const base = Math.max(0, card.dmg + this.enemy.strength + (this.turnBased ? this.turnRule('dmgBonus') : RULES.av.dmgBonus));
     return this.enemy.resist ? Math.floor(base / 2) : base;
   }
 

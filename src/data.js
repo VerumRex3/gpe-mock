@@ -2,16 +2,18 @@
 
 export const RULES = {
   playerMaxHp: 70,
-  enemyMaxHp: 90,
+  enemyMaxHp: 60, // 行動値制（一人モード）の敵 HP。v0.29 で 90 から
   handSize: 3, // 二人モードの1人あたりの手札
   soloHandSize: 5, // 一人モード（山札を混ぜる場合）の手札
   // 一人モードの山札: 'split' = キャラ別のまま手札は 3:3（handSize ずつ） / 'mixed' = 2人のデッキを1つに混ぜる
   soloDeck: 'split',
-  // 行動値制のコスト: 初期値 startCost、回復（costGain）しても costMax を超えない（v0.27 から上限あり。カードのコストを倍にしたので回復も倍）
+  // 行動値制のコスト: 初期値 startCost、回復（costGain）しても costMax を超えない（v0.27 から上限あり。v0.29 で回復は +1 に戻した）
   startCost: 6,
   costMax: 6,
   // 行動値制のコスト回復: 相方がカードを使ったとき・手札を引き直したとき（2人とも）・敵が行動したとき（2人とも）
-  costGain: { partner: 2, reroll: 2, enemy: 2 },
+  costGain: { partner: 1, reroll: 1, enemy: 1 },
+  // 行動値制の敵カードの補正（ダメージと HP に足す）。v0.29 で回復を +1 に戻したぶん弱くした
+  av: { dmgBonus: -7, cardHpBonus: -1 },
   // 行動値: 味方がカードを使う・手札を引き直すたびに1減り、0で敵が行動して元に戻る
   actionValue: 4,
   frenzyActionValue: 3, // 激昂後の行動値
