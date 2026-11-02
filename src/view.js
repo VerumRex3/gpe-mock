@@ -1,7 +1,7 @@
 // three.js による描画と演出。状態は game.js が持ち、ここは「見せ方」だけを担う
 // 画像素材は一切使わず、すべて Canvas 2D で描いたテクスチャを板ポリに貼っている
 import * as THREE from 'three';
-import { RULES, TYPE_LABEL, KIND_LABEL, ENCHANT, BANTER } from './data.js';
+import { RULES, CARDS, ITEMS, TYPE_LABEL, KIND_LABEL, ENCHANT, BANTER } from './data.js';
 import { PIDS, LABEL, NAME, describeEnemyCard, grade, bulletDamage } from './game.js';
 
 export const W = 1920;
@@ -112,18 +112,18 @@ function helpRows() {
         ? `好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。済んだら「ターン終了」（${SOLO_KEY.end}）で敵が1回行動し（激昂後は2回）、次のターンになる。`
         : `2人とも好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。自分の番が済んだら「ターン終了」（1P は ${KEYS.p1.end}、2P は ${KEYS.p2.end}）。2人とも押すと敵が1回行動し（激昂後は2回）、次のターンになる。`],
       ['手札', `ターン開始時に残った手札を捨て、${SOLO ? `${RULES.turn.soloHandSize}枚${SPLIT ? '（ルスカーとラティシア半分ずつ）' : ''}` : `1人${RULES.turn.handSize}枚`}引く。使ったカードの枠はそのターンは空のまま。引き直しは1ターンに1回で、残っている枠だけ引き直す。`],
-      ['コスト', `弾丸・アルカナのアイコンの左上の赤い数字。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。`],
+      ['コスト', `弾丸・アルカナのアイコンの左上の赤い数字。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。${!SOLO && RULES.turn.refill ? 'カードを使うと、空いた枠にすぐ1枚引く。' : ''}`],
       ['掛け合い', '敵が動くとき、使うカードの種類（攻撃・防御・特殊）に合わせて2人が一言交わす（台詞は仮）。'],
     ] : [
       ['行動値', `カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテムは行動値を消費しない。`],
-      ['コスト', `弾丸・アルカナのアイコンの左上の赤い数字。初期値3で上限なし。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが1回復する' : 'カードを使うと、相方のコストが1回復する'}（行動値を消費しないカードを除く）。手札を引き直すと2人とも+1、敵が行動すると2人とも+1。`],
+      ['コスト', `弾丸・アルカナのアイコンの左上の赤い数字。初期値 ${RULES.startCost}、上限 ${RULES.costMax}。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが' : 'カードを使うと、相方のコストが'}${RULES.costGain.partner}回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+${RULES.costGain.reroll}、敵が行動すると2人とも+${RULES.costGain.enemy}。`],
     ]),
     ['取り消し', SOLO
       ? `${SOLO_KEY.undo}。敵が次に行動するまでの間、直前の行動から順に取り消せる。`
       : `1P は ${KEYS.p1.undo}、2P は ${KEYS.p2.undo}。敵が次に行動するまでの間、自分の直前の行動を取り消せる（相方がそのあとに行動していたら不可）。${TURN ? 'ターン終了も、相方が押す前なら取り消せる。' : ''}`],
-    ['弾丸（ルスカー）', `再型で弾倉に1発ずつ装填（最大5）。${k1.stock} で一番上の弾を撃って敵に5ダメージ（コスト1）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。`],
-    ['アルカナ（ラティシア）', `占星統治1枚で魔法陣に2つ補填（最大5。v0.6 までは1つ）。${k2.stock} で番号順に「発動待ち」にする（コスト1）。発動待ちのアルカナは、敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵が行動するたびに、発動待ちのアルカナが番号の若い順に1つだけ当たって捨て札に行く。`],
-    ['アイテム（仮）', `${ITEM_KEYS.join('／')} キーで使う。各1戦に1回、行動値を消費しない。闘志の香＝ルスカーの次の攻撃+6、守りの護符＝2人とも防御+6、魔力の結晶＝2人ともコスト+2。${SOLO ? '' : '2人のどちらが押してもよい（取り消し不可）。'}`],
+    ['弾丸（ルスカー）', `再型で弾倉に1発ずつ装填（最大5）。${k1.stock} で一番上の弾を撃って敵に5ダメージ（コスト${CARDS.bullet.cost}）。ラティシアの星霊の加護で、次弾に崩壊・抵抗・特攻を付けられる。撃った弾は加護を残したまま捨て札に行き、いずれ手札に来る（手札からも撃てる）。`],
+    ['アルカナ（ラティシア）', `占星統治1枚で魔法陣に2つ補填（最大5。v0.6 までは1つ）。${k2.stock} で番号順に「発動待ち」にする（コスト${CARDS.bullet.cost}）。発動待ちのアルカナは、敵が使うカードに5ダメージ。ルスカーの運命超過で付けた属性がカードの種類と合うと+5。カードの HP が0になると破壊され、その行動も止まる。敵が行動するたびに、発動待ちのアルカナが番号の若い順に1つだけ当たって捨て札に行く。`],
+    ['アイテム（仮）', `${ITEM_KEYS.join('／')} キーで使う。各1戦に1回、行動値を消費しない。闘志の香＝ルスカーの次の攻撃+6、守りの護符＝2人とも防御+6、魔力の結晶＝2人ともコスト+${ITEMS[2].fx.costAll}。${SOLO ? '' : '2人のどちらが押してもよい（取り消し不可）。'}`],
     ['パリィ', `パリィカードを使うと「構え」になり、次の敵の攻撃カードでバーが出る。中央で止めるほど防御値が大きく、ピンクの範囲なら成功効果も発動。${SOLO ? 'バーは1本で、止めた位置が構えている全員に効く。' : '「全員でパリィ」のカードを構えていると2人ともバーに参加する。'}`],
     ['敵', `HP が半分を切ると激昂し、${TURN ? `1ターンに${RULES.turn.frenzyEnemyActs}回行動する` : `行動値が${RULES.frenzyActionValue}になる`}。防御値は HP より先に削られる盾で、使い切らなかった分は溜まっていく。`],
   ];
@@ -1795,22 +1795,11 @@ function drawDeckTabs(ctx, w, y) {
   ctx.textBaseline = 'middle';
   ctx.font = font(20, 500);
   ctx.fillStyle = '#b9d3d8';
-  const x0 = w / 2 + 130;
+  const x0 = w / 2 - 230;
   ctx.fillText('山札（W / S）', x0 - 14, y + 22);
   const mixed = TURN ? RULES.turn.soloHandSize : RULES.soloHandSize;
   const half = TURN ? RULES.turn.soloHandSize / 2 : RULES.handSize;
   drawTabs(ctx, x0, y, [[`キャラ別・手札 ${half}:${half}`, SPLIT], [`混ぜる・手札${mixed}枚`, !SPLIT]]);
-}
-
-// 一人モードの進行（タイトル・リザルトで ↑ / ↓ で切り替え）。山札のタブの左に並べる
-function drawProgressTabs(ctx, w, y) {
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  ctx.font = font(20, 500);
-  ctx.fillStyle = '#b9d3d8';
-  const x0 = w / 2 - 520;
-  ctx.fillText('進行（↑ / ↓）', x0 - 14, y + 22);
-  drawTabs(ctx, x0, y, [['行動値制', !TURN], ['ターン制', TURN]], 170);
 }
 
 function drawTabs(ctx, x0, y, tabs, tw = 236) {
@@ -1877,7 +1866,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制／ターン制　二人＝ターン制　戦闘モック v0.26', w / 2, 398);
+  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.27', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -1885,7 +1874,6 @@ function drawTitle(ctx, w, h, ready) {
   let bottom;
   if (SOLO) {
     bottom = soloBox(ctx, w / 2 - 310, 552);
-    drawProgressTabs(ctx, w, bottom + 16);
     drawDeckTabs(ctx, w, bottom + 16);
     bottom += 78;
   } else {

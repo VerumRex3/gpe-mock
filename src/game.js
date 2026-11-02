@@ -186,8 +186,9 @@ export class Game {
     if (err) return { error: err };
     this.saveUndo(hid);
     p.cost -= card.cost;
-    // 行動値制は使った枠をすぐ埋める。ターン制は次のターンまで空のまま
-    h.hand[slot] = this.turnBased ? null : this.draw(this.drawPile(hid, slot));
+    // 行動値制と、二人モードのターン制（RULES.turn.refill）は使った枠をすぐ埋める。それ以外のターン制は次のターンまで空のまま
+    const refill = !this.turnBased || (!this.solo && RULES.turn.refill);
+    h.hand[slot] = refill ? this.draw(this.drawPile(hid, slot)) : null;
     const ev = [log(`${NAME[pid]}「${card.name}」`)];
     this.resolveCard(pid, card, ev);
     if (!card.free) this.afterAction(pid, ev);
@@ -308,7 +309,7 @@ export class Game {
     for (let i = 0; i < h.hand.length; i++) if (redraw[i]) h.hand[i] = this.draw(this.drawPile(hid, i));
     const ev = [log(`${this.solo ? '' : `${NAME[hid]} `}手札を引き直した`)];
     // ターン制では引き直しは1ターン1回で、コストは増えない
-    if (!this.turnBased) for (const q of this.alivePids()) this.gainCost(q, 1, ev);
+    if (!this.turnBased) for (const q of this.alivePids()) this.gainCost(q, RULES.costGain.reroll, ev);
     this.afterAction(hid, ev, false);
     this.checkOver(ev);
     ev.push({ type: 'cost' });
@@ -383,16 +384,20 @@ export class Game {
       this.tickDecay(ev);
       return;
     }
-    if (partnerGain && this.alive(this.other(pid))) this.gainCost(this.other(pid), 1, ev);
+    if (partnerGain && this.alive(this.other(pid))) this.gainCost(this.other(pid), RULES.costGain.partner, ev);
     this.av = Math.max(0, this.av - 1);
     ev.push({ type: 'av', av: this.av });
     this.tickDecay(ev);
     if (this.av === 0 && !this.over) this.enemyPending = true;
   }
 
+  // 行動値制では RULES.costMax を超えない（ターン制はターンごとに戻るので上限は turn.costMax で別に持つ）
   gainCost(pid, amount, ev) {
-    this.players[pid].cost += amount;
-    ev.push({ type: 'costGain', pid, amount });
+    const p = this.players[pid];
+    const max = !this.turnBased && RULES.costMax ? RULES.costMax : Infinity;
+    const gained = Math.max(0, Math.min(amount, max - p.cost));
+    p.cost += gained;
+    if (gained) ev.push({ type: 'costGain', pid, amount: gained });
   }
 
   tickDecay(ev) {
@@ -616,7 +621,7 @@ export class Game {
       this.newHand();
       ev.push({ type: 'newTurn', cost });
     } else {
-      for (const pid of this.alivePids()) this.gainCost(pid, 1, ev);
+      for (const pid of this.alivePids()) this.gainCost(pid, RULES.costGain.enemy, ev);
     }
     // 取り消せるのは敵が次に行動するまで（v0.6 まではここで消しておらず、敵の行動をまたいで戻せていた）
     this.undoStack = [];

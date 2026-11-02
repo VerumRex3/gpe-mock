@@ -5,7 +5,7 @@ const base = new URL('../src', import.meta.url).href;
 const data = await import(`${base}/data.js`);
 const { Game } = await import(`${base}/game.js`);
 const over = JSON.parse(process.argv[2] ?? '{}');
-// 上書き: { duoProgress, turn: {cost, enemyActs, frenzyEnemyActs}, playerHp, enemyHp, cardHp: {claw:..}, cardDmg: {claw:..}, arcanaDmg, attrBonus, astroLoad, av, soloHand, soloDeck, noItems }
+// 上書き: { rules: {RULES の値}, duoProgress, turn: {cost, enemyActs, frenzyEnemyActs}, playerHp, enemyHp, cardHp: {claw:..}, cardDmg: {claw:..}, arcanaDmg, attrBonus, astroLoad, av, soloHand, soloDeck, noItems }
 if (over.enemyHp) data.RULES.enemyMaxHp = over.enemyHp;
 if (over.cardHp) for (const [k, v] of Object.entries(over.cardHp)) data.ENEMY.cards[k].hp = v;
 if (over.cardDmg) for (const [k, v] of Object.entries(over.cardDmg)) data.ENEMY.cards[k].dmg = v;
@@ -19,6 +19,7 @@ if (over.playerHp) data.RULES.playerMaxHp = over.playerHp;
 if (over.noItems) data.ITEMS.forEach((it) => { it.fx = {}; });
 if (over.soloHand) data.RULES.soloHandSize = over.soloHand;
 if (over.soloDeck) data.RULES.soloDeck = over.soloDeck;
+if (over.rules) Object.assign(data.RULES, over.rules);
 
 const SKILL = {
   good: { noise: 0.05, parry: () => 0.6 + Math.random() * 0.4, items: true },

@@ -59,7 +59,7 @@ const params = new URLSearchParams(location.search);
 let playMode = params.has('solo') ? 'solo' : 'duo';
 // 一人モードの山札の分け方。?deck=mixed / ?deck=split で指定でき、タイトルでも W / S で切り替えられる
 let soloDeck = ['mixed', 'split'].includes(params.get('deck')) ? params.get('deck') : RULES.soloDeck;
-// 一人モードの進行。?progress=turn / ?progress=av で指定でき、タイトルでも ↑ / ↓ で切り替えられる
+// 一人モードの進行は行動値制（v0.27 で確定）。比較用に ?progress=turn を付けるとターン制で動く
 let soloProgress = ['turn', 'av'].includes(params.get('progress')) ? params.get('progress') : RULES.soloProgress;
 const newGame = () => new Game(Math.random, playMode, { soloDeck, soloProgress });
 let game = newGame();
@@ -85,8 +85,8 @@ window.addEventListener('keydown', (e) => {
 function onAction(pid, act, arg) {
   if (mode === 'title' || mode === 'result') {
     if (act === 'left' || act === 'right') return switchMode();
-    // 一人モードは W / S で山札の分け方、↑ / ↓ で進行を切り替える
-    if (playMode === 'solo' && (act === 'stock' || act === 'reroll')) return pid === 'p2' ? switchProgress() : switchDeck();
+    // 一人モードは W / S で山札の分け方を切り替える
+    if (playMode === 'solo' && pid === 'p1' && (act === 'stock' || act === 'reroll')) return switchDeck();
     if (act !== 'use') return;
     if (playMode === 'solo') return startBattle();
     startReady[pid] = true;
@@ -116,11 +116,6 @@ function switchMode() {
 
 function switchDeck() {
   soloDeck = soloDeck === 'split' ? 'mixed' : 'split';
-  rebuildSolo();
-}
-
-function switchProgress() {
-  soloProgress = soloProgress === 'turn' ? 'av' : 'turn';
   rebuildSolo();
 }
 
