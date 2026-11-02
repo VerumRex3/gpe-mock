@@ -73,7 +73,7 @@ const FAN = {
   duo: { top: 1010, lift: 175, zoom: 0.32 },
   // tuck: 山札キャラ別で、カーソルがない側のキャラのカードをしまう並べ方。first は境目のカードから最初のカードまで（扇のカード何枚分か）、
   // R と step はしまう側を並べる小さな円の半径と1枚ごとの角度、spacing は扇の向きを決めるときに数える幅、shrink・dim は縮める・暗くする割合、drop は下げる量
-  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.1, tuck: { first: 0.8, R: 520, step: 0.2, spacing: 0.7, shrink: 0.12, dim: 0.2, drop: 45 } },
+  one: { top: 935, lift: 80, zoom: 0.2, gap: 0.1, tuck: { first: 0.8, R: 520, step: 0.2, spacing: 0.7, shrink: 0.12, dim: 0.1, drop: 45 } },
 };
 // 掛け合いの吹き出し（キャラの頭上より上、敵カードを大きく出す位置とは重ならない高さ）
 const BUBBLE_X = { p1: POS.p1.x - 36, p2: POS.p2.x + 73 };
@@ -113,11 +113,11 @@ function helpRows() {
         : `2人とも好きな順に、好きなだけカードを使える（制限時間なし）。カードは使ったその場で発動する。自分の番が済んだら「ターン終了」（1P は ${KEYS.p1.end}、2P は ${KEYS.p2.end}）。2人とも押すと敵が1回行動し（激昂後は2回）、次のターンになる。`],
       ['手札', `ターン開始時に残った手札を捨て、${SOLO ? `${RULES.turn.soloHandSize}枚${SPLIT ? '（ルスカーとラティシア半分ずつ）' : ''}` : `1人${RULES.turn.handSize}枚`}引く。使ったカードの枠はそのターンは空のまま。引き直しは1ターンに1回で、残っている枠だけ引き直す。`],
       ['コスト', `弾丸・アルカナのアイコンの左上の赤い数字。ターン開始時に戻る（使い残しは持ち越さない）。1ターン目は ${RULES.turn.cost}、以後毎ターン +${RULES.turn.costStep}${RULES.turn.costMax ? `（最大 ${RULES.turn.costMax}）` : ''}。${!SOLO && RULES.turn.refill ? 'カードを使うと、空いた枠にすぐ1枚引く。' : ''}`],
-      ['掛け合い', '敵が動くとき、使うカードの種類（攻撃・防御・特殊）に合わせて2人が一言交わす（台詞は仮）。'],
     ] : [
       ['行動値', `カードは使ったその場で発動する。カードを使うか手札を引き直すたびに敵の行動値が1減り、0になると敵が1枚使って行動値が元に戻る。再型・占星統治・アイテムは行動値を消費しない。`],
       ['コスト', `弾丸・アルカナのアイコンの左上の赤い数字。初期値 ${RULES.startCost}、上限 ${RULES.costMax}。${SOLO ? 'どちらかのカードを使うと、もう一方のコストが' : 'カードを使うと、相方のコストが'}${RULES.costGain.partner}回復する（行動値を消費しないカードを除く）。手札を引き直すと2人とも+${RULES.costGain.reroll}、敵が行動すると2人とも+${RULES.costGain.enemy}。`],
     ]),
+    ['掛け合い', `敵が動くとき、使うカードの種類（攻撃・防御・特殊）に合わせて2人が一言交わす（台詞は仮）。${TURN ? '' : '行動値制では、敵が前回と違う種類のカードを使ったときだけ。'}`],
     ['取り消し', SOLO
       ? `${SOLO_KEY.undo}。敵が次に行動するまでの間、直前の行動から順に取り消せる。`
       : `1P は ${KEYS.p1.undo}、2P は ${KEYS.p2.undo}。敵が次に行動するまでの間、自分の直前の行動を取り消せる（相方がそのあとに行動していたら不可）。${TURN ? 'ターン終了も、相方が押す前なら取り消せる。' : ''}`],
@@ -931,6 +931,12 @@ export function drawCard(ctx, w, h, card, o) {
   if (!o.affordable || o.inactive) {
     rr(ctx, 2, 2, w - 4, h - 4, 12);
     ctx.fillStyle = o.inactive ? 'rgba(10, 10, 14, 0.35)' : 'rgba(10, 10, 14, 0.5)';
+    ctx.fill();
+  }
+  // 一人モードでカーソルがない側のキャラのカード（しまっている）にはグレーをかける
+  if (o.tucked) {
+    rr(ctx, 2, 2, w - 4, h - 4, 12);
+    ctx.fillStyle = 'rgba(128, 128, 136, 0.55)';
     ctx.fill();
   }
 }
@@ -1866,7 +1872,7 @@ function drawTitle(ctx, w, h, ready) {
   ctx.fillText('BATTLE MOCK', w / 2, 330);
   ctx.font = font(30, 500);
   ctx.fillStyle = '#b9d3d8';
-  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.27', w / 2, 398);
+  ctx.fillText('一人＝行動値制　二人＝ターン制　戦闘モック v0.28', w / 2, 398);
   ctx.font = font(22, 500);
   ctx.fillStyle = '#93abb1';
   ctx.fillText('A / D または ← / → でモードを切り替え', w / 2, 440);
@@ -2386,9 +2392,14 @@ export class View {
       };
     }
     const ease = Math.min(1, dt * 0.018);
+    let redraw = false;
     this.hands[hid].forEach((s, i) => {
       if (i >= n) return;
       const isTucked = tucked(i);
+      if (s.isTucked !== isTucked) {
+        s.isTucked = isTucked;
+        redraw = true;
+      }
       const k = isTucked ? Math.abs(i - (focus === 0 ? Math.floor(half) : Math.ceil(half) - 1)) : 0;
       const t = isTucked ? tuckAt(k) : onFan((u[i] - center) * fan.step);
       if (isTucked) t.y += tk.drop;
@@ -2415,6 +2426,7 @@ export class View {
       s.card.mesh.renderOrder = sel ? L.cards + 3.5 : isTucked ? L.cards + 1 - k * 0.2 : L.cards + 3 - Math.min(3, Math.abs(d)) * 0.6;
       s.glow.mesh.renderOrder = L.cards + 3.4;
     });
+    if (redraw) this.refreshHands();
   }
 
   // ---------------- 状態の反映
@@ -2549,8 +2561,9 @@ export class View {
           costOk: !card || card.cost <= g.players[pid].cost,
           inactive: this.phase !== 'player' || !g.canAct(hid),
           owner: g.solo,
+          tucked: !!s.isTucked,
         };
-        const key = `${card?.uid}|${card?.boons.length}|${card?.aspect}|${o.affordable}|${o.costOk}|${o.inactive}|${o.owner}`;
+        const key = `${card?.uid}|${card?.boons.length}|${card?.aspect}|${o.affordable}|${o.costOk}|${o.inactive}|${o.owner}|${o.tucked}`;
         if (s.key === key) return;
         s.key = key;
         s.card.draw((ctx, w, h) => drawCard(ctx, w, h, card, o));

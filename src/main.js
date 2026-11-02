@@ -63,6 +63,8 @@ let soloDeck = ['mixed', 'split'].includes(params.get('deck')) ? params.get('dec
 let soloProgress = ['turn', 'av'].includes(params.get('progress')) ? params.get('progress') : RULES.soloProgress;
 const newGame = () => new Game(Math.random, playMode, { soloDeck, soloProgress });
 let game = newGame();
+// 行動値制で、最後に掛け合いを出した敵のカードの種類
+let lastBanterKind = null;
 
 view.bindGame(game, cursor);
 view.setPhase('title');
@@ -228,6 +230,7 @@ async function afterPlayerAction() {
 
 async function startBattle() {
   mode = 'intro';
+  lastBanterKind = null;
   startReady.p1 = startReady.p2 = false;
   game = newGame();
   cursor.p1 = cursor.p2 = cursor.solo = 0;
@@ -259,8 +262,11 @@ async function enemyAction() {
   const card = game.enemy.cards[slot];
   view.addLog(`敵「${card.name}」`);
   await view.revealEnemyCard(slot, card, card.dmg != null ? game.enemyDamage(card) : undefined);
-  // ターン制は、敵のカードの種類に合わせて2人が掛け合う
-  if (game.turnBased) await view.banter(card.kind);
+  // 敵のカードの種類に合わせて2人が掛け合う。行動値制は敵がよく動くので、前回と違う種類のカードのときだけ
+  if (game.turnBased || card.kind !== lastBanterKind) {
+    lastBanterKind = card.kind;
+    await view.banter(card.kind);
+  }
   view.enqueue(game.arcanaStrike(slot));
   await view.idle();
   if (!card.broken && !game.over) {
